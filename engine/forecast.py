@@ -1,4 +1,4 @@
-"""Transparent EUR/USD 5M baseline forecast engine. No future data may be supplied."""
+"""Transparent EUR/USD 5M baseline forecast engine. Future candles are forbidden."""
 from dataclasses import dataclass
 from typing import Sequence
 
