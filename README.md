@@ -47,3 +47,6 @@ PYTHONPATH=. pytest -q
 Open `dashboard/index.html` in a browser for the visual research dashboard.
 
 For live deployment, connect an authorized EUR/USD 5-minute market-data source and a scheduler/stream adapter. Never inject future candles into the forecast input.
+
+## Verification
+CI validates the forecast engine, temporal lock, consensus, and live-feed timestamp filtering.
