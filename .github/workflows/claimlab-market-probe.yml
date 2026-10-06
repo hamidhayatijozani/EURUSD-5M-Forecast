@@ -2,6 +2,12 @@ name: ClaimLab EURUSD market probe
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - "claimlab/**"
+      - "scripts/claimlab_market_probe.py"
+      - "requirements.txt"
+      - ".github/workflows/claimlab-market-probe.yml"
   schedule:
     - cron: "*/15 * * * *"
 
