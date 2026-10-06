@@ -1,0 +1,44 @@
+name: ClaimLab historical walk-forward evidence
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "claimlab/**"
+      - "scripts/claimlab_walkforward.py"
+      - "tests/test_walkforward.py"
+      - ".github/workflows/claimlab-walkforward.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  walk-forward:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: python -m pip install -r requirements.txt
+
+      - name: Test walk-forward contract
+        run: PYTHONPATH=. pytest -q tests/test_walkforward.py
+
+      - name: Run real historical walk-forward
+        env:
+          PYTHONPATH: .
+        run: python scripts/claimlab_walkforward.py
+
+      - name: Upload Claim Evidence Capsule
+        uses: actions/upload-artifact@v5
+        with:
+          name: claimlab-walkforward-evidence-${{ github.run_id }}
+          path: evidence/claimlab-walkforward/
+          if-no-files-found: error
