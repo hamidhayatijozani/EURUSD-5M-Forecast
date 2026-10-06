@@ -24,7 +24,7 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - name: Fetch and validate EURUSD 5m candle
-        run: python scripts/claimlab_market_probe.py
+        run: PYTHONPATH=. python scripts/claimlab_market_probe.py
       - name: Upload market evidence
         uses: actions/upload-artifact@v4
         with:
