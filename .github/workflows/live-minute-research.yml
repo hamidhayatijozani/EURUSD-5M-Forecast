@@ -23,6 +23,8 @@ jobs:
       - run: PYTHONPATH=. pytest -q
       - name: refresh public source availability
         run: PYTHONPATH=. python -c "from engine.trader_sources import refresh_public_source_snapshot; refresh_public_source_snapshot()"
+      - name: ClaimLab closed-candle evaluation
+        run: PYTHONPATH=. python -c "from claimlab.live_loop import LiveEvaluationLoop; LiveEvaluationLoop(poll_interval_seconds=0).run(max_iterations=1)"
       - name: live minute forecast loop
         env:
           ELECTRICITY_MAPS_API_KEY: ${{ secrets.ELECTRICITY_MAPS_API_KEY }}
@@ -33,3 +35,4 @@ jobs:
           path: |
             research/live_state.json
             research/live_predictions.jsonl
+            research/claimlab_live_ledger.jsonl
