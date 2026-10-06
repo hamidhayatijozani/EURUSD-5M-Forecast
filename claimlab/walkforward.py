@@ -102,7 +102,7 @@ def walk_forward(
         feature_returns = returns[i - lookback + 1 : i + 1]
         prediction = mean(feature_returns)
         baseline = 0.0
-        actual = returns[i + 1]
+        actual = returns[i]
         pred = {
             "schema_version": "claimlab.observation.v1",
             "prediction_id": f"eurusd-m5-{i:08d}",
