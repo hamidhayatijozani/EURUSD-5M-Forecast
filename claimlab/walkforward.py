@@ -95,7 +95,7 @@ def walk_forward(
     observations: list[Observation] = []
 
     # i is the issued/closed bar. j=i+1 is the first bar not known at issuance.
-    for i in range(lookback, len(rows) - 1):
+    for i in range(lookback, len(rows) - 2):
         issued = rows[i]["timestamp"]
         target = rows[i + 1]["timestamp"]
         # The issued bar is closed and therefore known. The target bar is not.
