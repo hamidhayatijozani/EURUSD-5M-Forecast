@@ -80,7 +80,7 @@ class StatisticalEngine:
     def summarize(rows:Iterable[dict],horizon=5,resamples=2000,alpha=.05,seed=20261006)->Dict[str,object]:
         valid=[r for r in rows if r.get("status")=="VALID"]; n=len(valid)
         if not n:return {"n":0,"effective_n":0,"status":"INSUFFICIENT_DATA"}
-        delta=[float(r["baseline_error_absolute"])-float(r["error_absolute"]) for r in valid]
+        delta=[(float(r["baseline_error_absolute"])-float(r["error_absolute"]) if "baseline_error_absolute" in r and "error_absolute" in r else abs(float(r["actual"])-float(r["baseline_prediction"]))-abs(float(r["actual"])-float(r.get("prediction",0.0)))) for r in valid]
         net=[float(r["friction_adjusted_return"]) for r in valid]
         hit=sum(bool(r["direction_hit"]) for r in valid)
         neff=StatisticalEngine.calculate_effective_n(net,horizon)
