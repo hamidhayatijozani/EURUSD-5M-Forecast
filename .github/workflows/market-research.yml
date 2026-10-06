@@ -16,7 +16,7 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install pytest
       - run: PYTHONPATH=. pytest -q
-      - run: python scripts/run_market_research.py
+      - run: PYTHONPATH=. python scripts/run_market_research.py
       - uses: actions/upload-artifact@v4
         with:
           name: market-research-${{ github.run_number }}
