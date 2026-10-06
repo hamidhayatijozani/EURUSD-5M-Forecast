@@ -100,5 +100,5 @@ def test_arena_and_preregistered_verdict():
     assert stats["n"] == 100
     assert stats["mae_delta"] == pytest.approx(1.0)
     assert verdict(stats, min_n=100) == "SURVIVES"
-    assert verdict({**stats, "mae_delta": 0.0}, min_n=100) == "KILLED"
+    assert verdict({**stats, "mae_delta_ci_lower": 0.0}, min_n=100) == "KILLED"
     assert verdict({**stats, "n": 99}, min_n=100) == "INSUFFICIENT_DATA"
