@@ -1,0 +1,2 @@
+{"trader_id":"good","prediction_ts":"2026-10-06T11:55:00+00:00","target_ts":"2026-10-06T12:00:00+00:00","entry_price":1.0,"predicted_return":0.0005,"direction":"UP","target_price":1.0004}
+{"trader_id":"bad","prediction_ts":"2026-10-06T11:55:00+00:00","target_ts":"2026-10-06T12:00:00+00:00","entry_price":1.0,"predicted_return":-0.0005,"direction":"DOWN","target_price":1.0004}
