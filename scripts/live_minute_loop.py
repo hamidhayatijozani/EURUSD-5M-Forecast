@@ -70,7 +70,7 @@ def settle(rows,latest_ts,latest_price,state):
 def git_commit():
     if not os.environ.get("GITHUB_ACTIONS"): return
     subprocess.run(["git","config","user.name","github-actions[bot]"],check=False)
-    subprocess.run(["git","config","user.email","41898282+users.noreply.github.com"],check=False)
+    subprocess.run(["git","config","user.email","41898282+github-actions[bot]@users.noreply.github.com"],check=False)
     subprocess.run(["git","add",str(STATE_PATH),str(PRED_PATH)],check=False)
     if subprocess.run(["git","diff","--cached","--quiet"]).returncode==0: return
     subprocess.run(["git","commit","-m","chore: persist live forecast evidence [skip ci]"],check=False)
