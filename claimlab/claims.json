@@ -1,0 +1,19 @@
+{
+  "schema_version":"claimlab.registry.v1",
+  "registry_id":"EURUSD-5M-CORE-001",
+  "status":"LOCKED",
+  "symbol":"EURUSD",
+  "horizon_seconds":300,
+  "baseline":"locked_baseline_prediction",
+  "minimum_n":100,
+  "claims":[
+    {"id":"C001","metric":"mae_delta","direction":">","threshold":0.0},
+    {"id":"C002","metric":"hit_rate","direction":">=","threshold":0.5},
+    {"id":"C003","metric":"friction_adjusted_return","direction":">","threshold":0.0},
+    {"id":"C004","metric":"temporal_validity_rate","direction":"=","threshold":1.0},
+    {"id":"C005","metric":"duplicate_prediction_rate","direction":"=","threshold":0.0},
+    {"id":"C006","metric":"ledger_integrity","direction":"=","threshold":1.0}
+  ],
+  "invalid_observations_excluded":true,
+  "notes":"Synthetic/browser forecasts are demonstrations only. This registry does not establish predictive edge or profitability."
+}
