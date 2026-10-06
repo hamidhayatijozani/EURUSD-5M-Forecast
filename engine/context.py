@@ -7,7 +7,7 @@ from statistics import median
 from urllib.request import Request, urlopen
 
 NEWS_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
-POWER_URL = "https://api.electricitymaps.com/v4/total-load/{zone}/latest"
+POWER_HISTORY_URL = "https://api.electricitymaps.com/v4/total-load/history"
 
 @dataclass(frozen=True)
 class ExternalContext:
@@ -24,7 +24,7 @@ def _clip(x, lo=-1.0, hi=1.0):
     return max(lo, min(hi, float(x)))
 
 def _fetch_json(url, headers=None, timeout=12):
-    req = Request(url, headers=headers or {"User-Agent": "EURUSD-5M-Forecast/3.0"})
+    req = Request(url, headers=headers or {"User-Agent": "EURUSD-5M-Forecast/3.1"})
     with urlopen(req, timeout=timeout) as r:
         return json.load(r)
 
@@ -87,8 +87,11 @@ def trader_leaderboard(eurusd_rows, path="research/trader_signals.jsonl", now=No
             if target.tzinfo is None: target=target.replace(tzinfo=timezone.utc)
             if pred < cutoff or target > now: continue
             entry=float(row["entry_price"])
-            target_price=float(row.get("target_price", price_by_ts[target]))
-            actual=target_price/entry-1.0
+            target_price=row.get("target_price")
+            if target_price is None:
+                target_price=price_by_ts.get(target)
+            if target_price is None: continue
+            actual=float(target_price)/entry-1.0
             expected=float(row.get("predicted_return",0.0))
             err=actual-expected
             item=by.setdefault(str(row["trader_id"]),{"trader_id":str(row["trader_id"]),"n":0,"abs_error":[],"signed_error":[]})
@@ -110,36 +113,56 @@ def trader_leaderboard(eurusd_rows, path="research/trader_signals.jsonl", now=No
 
 def _power_anomaly(values):
     if len(values)<12: return 0.0
-    base=median(values[-12:-1])
+    base=median(values[:-1])
     return 0.0 if base==0 else _clip((values[-1]/base-1.0)/0.15)
 
-def fetch_power_proxy(token=None, zones=("DE","US-MIDA")):
+def _power_targets():
+    raw=os.getenv("DATACENTER_TARGETS","gcp:europe-west1,gcp:us-central1")
+    return [x.strip().split(":",1) for x in raw.split(",") if ":" in x]
+
+def fetch_power_proxy(token=None, now=None):
+    """Direct data-center load where the provider exposes it, with grid fallback.
+
+    This is a measurable infrastructure-stress signal, not a claim that all
+    datacenter electricity is observable. It is deliberately low-weight.
+    """
     token=token or os.getenv("ELECTRICITY_MAPS_API_KEY")
+    now=now or datetime.now(timezone.utc)
     if not token:
-        return {"score":0.0,"status":"UNAVAILABLE:NO_API_KEY","zones":[]}
-    scores=[]; observed=[]
-    for zone in zones:
+        return {"score":0.0,"status":"UNAVAILABLE:NO_API_KEY","targets":[]}
+    headers={"User-Agent":"EURUSD-5M-Forecast/3.1","auth-token":token}
+    scores=[]; targets=[]
+    for provider,region in _power_targets():
         try:
-            payload=_fetch_json(POWER_URL.format(zone=zone),
-                {"User-Agent":"EURUSD-5M-Forecast/3.0","Authorization":f"Bearer {token}"})
-            vals=[float(x["value"]) for x in payload.get("data",[])
-                  if isinstance(x.get("value"),(int,float))]
-            if vals:
-                scores.append(_power_anomaly(vals)); observed.append(zone)
+            params={"dataCenterProvider":provider,"dataCenterRegion":region,
+                    "temporalGranularity":"5_minutes"}
+            payload=_fetch_json(POWER_HISTORY_URL+"?"+urllib.parse.urlencode(params),headers)
+            vals=[]
+            for x in payload.get("history",[]):
+                ts=x.get("datetime")
+                if not ts: continue
+                dt=datetime.fromisoformat(ts.replace("Z","+00:00"))
+                if dt <= now and isinstance(x.get("value"),(int,float)):
+                    vals.append(float(x["value"]))
+            if len(vals)>=12:
+                scores.append(_power_anomaly(vals)); targets.append(f"{provider}:{region}")
         except Exception:
             continue
-    if not scores: return {"score":0.0,"status":"UNAVAILABLE:PROVIDER","zones":[]}
-    return {"score":sum(scores)/len(scores),"status":"OK","zones":observed}
+    if not scores:
+        return {"score":0.0,"status":"UNAVAILABLE:PROVIDER","targets":[]}
+    return {"score":sum(scores)/len(scores),"status":"OK","targets":targets}
 
 def fuse_context(news,traders,power):
-    score=_clip(0.45*news["score"]+0.40*traders["score"]+0.15*power["score"])
+    # News and observed trader error are directional. Data-center load is a
+    # stress/regime feature and is intentionally not treated as direction.
+    directional=_clip(0.55*news["score"]+0.45*traders["score"])
     return ExternalContext(news_score=news["score"],news_volume=news.get("volume",0.0),
         trader_score=traders["score"],trader_count=traders["count"],
         power_score=power["score"],power_status=power["status"],
-        context_score=score,
-        sources=("GDELT","TRADER_LEADERBOARD_24H","ELECTRICITY_MAPS_TOTAL_LOAD_PROXY"))
+        context_score=directional,
+        sources=("GDELT","TRADER_LEADERBOARD_24H","ELECTRICITY_MAPS_DATACENTER_LOAD"))
 
 def collect_external_context(eurusd_rows,now=None):
     now=now or datetime.now(timezone.utc)
     return asdict(fuse_context(fetch_news_context(now),
-        trader_leaderboard(eurusd_rows,now=now),fetch_power_proxy()))
+        trader_leaderboard(eurusd_rows,now=now),fetch_power_proxy(now=now)))
