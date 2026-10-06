@@ -1,7 +1,7 @@
 """Real EUR/USD market ingestion with strict candle validation."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Optional
 import requests
 
@@ -12,7 +12,7 @@ class MarketIngestionClient:
         self.timeout = timeout
         self.session = session or requests
 
-    def fetch_latest_eurusd_candle(self) -> Optional[Dict[str, Any]]:
+    def fetch_latest_eurusd_candle(self, closed_only: bool = False, now: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
         try:
             response = self.session.get(self.api_endpoint, timeout=self.timeout)
             response.raise_for_status()
@@ -86,6 +86,13 @@ class YahooEURUSD5mClient(MarketIngestionClient):
                     })
             if not rows:
                 return None
+            if closed_only:
+                current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+                floor = current.replace(minute=(current.minute // 5) * 5, second=0, microsecond=0)
+                cutoff = floor - timedelta(minutes=5)
+                rows = [r for r in rows if datetime.fromisoformat(str(r['timestamp']).replace('Z', '+00:00')).astimezone(timezone.utc) <= cutoff]
+                if not rows:
+                    return None
             candle = self._standardize(rows[-1])
             self._validate_candle(candle)
             return candle
