@@ -12,7 +12,7 @@ class MarketIngestionClient:
         self.timeout = timeout
         self.session = session or requests
 
-    def fetch_latest_eurusd_candle(self, closed_only: bool = False, now: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
+    def fetch_latest_eurusd_candle(self) -> Optional[Dict[str, Any]]:nly: bool = False, now: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
         try:
             response = self.session.get(self.api_endpoint, timeout=self.timeout)
             response.raise_for_status()
@@ -66,7 +66,7 @@ class YahooEURUSD5mClient(MarketIngestionClient):
             session=session,
         )
 
-    def fetch_latest_eurusd_candle(self) -> Optional[Dict[str, Any]]:
+    def fetch_latest_eurusd_candle(self, closed_only: bool = False, now: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
         try:
             response = self.session.get(self.api_endpoint, timeout=self.timeout)
             response.raise_for_status()
