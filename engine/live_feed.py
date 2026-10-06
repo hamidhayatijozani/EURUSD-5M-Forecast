@@ -4,6 +4,7 @@ from datetime import datetime,timedelta,timezone
 from urllib.request import Request,urlopen
 SYMBOLS={"EURUSD":"EURUSD=X","GBPUSD":"GBPUSD=X","USDJPY":"USDJPY=X","DXY":"DX-Y.NYB"}
 BASE="https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=5m&range=1d"
+BASE_1M="https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1m&range=1d"
 def fetch_5m_closes(symbol="EURUSD"):
     req=Request(BASE.format(SYMBOLS.get(symbol,symbol)),headers={"User-Agent":"EURUSD-5M-Forecast/2.0"})
     with urlopen(req,timeout=15) as response: payload=json.load(response)
@@ -25,3 +26,15 @@ def aligned_closed_series(now=None,limit=300):
     if len(times)<13: raise RuntimeError("fewer than 13 common closed candles")
     maps={k:dict(series[k]) for k in series}
     return {k:[maps[k][ts] for ts in times] for k in series},times
+
+
+def fetch_1m_closes(symbol="EURUSD"):
+    req=Request(BASE_1M.format(SYMBOLS.get(symbol,symbol)),headers={"User-Agent":"EURUSD-5M-Forecast/2.0"})
+    with urlopen(req,timeout=15) as response:
+        payload=json.load(response)
+    result=payload["chart"]["result"][0]
+    return [(datetime.fromtimestamp(ts,tz=timezone.utc),float(p)) for ts,p in zip(result["timestamp"],result["indicators"]["quote"][0]["close"]) if p is not None]
+
+def closed_1m_rows(symbol="EURUSD",now=None):
+    now=now or datetime.now(timezone.utc)
+    return [(ts,p) for ts,p in fetch_1m_closes(symbol) if ts+timedelta(minutes=1)<=now]
