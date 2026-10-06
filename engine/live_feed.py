@@ -11,7 +11,8 @@ def fetch_5m_closes(symbol="EURUSD"):
     return [(datetime.fromtimestamp(ts,tz=timezone.utc),float(p)) for ts,p in zip(result["timestamp"],result["indicators"]["quote"][0]["close"]) if p is not None]
 def closed_rows(symbol,now=None):
     now=now or datetime.now(timezone.utc)
-    return [(ts,p) for ts,p in fetch_5m_closes(symbol) if ts+timedelta(minutes=5)<=now]
+    rows=fetch_5m_closes() if symbol=="EURUSD" else fetch_5m_closes(symbol)
+    return [(ts,p) for ts,p in rows if ts+timedelta(minutes=5)<=now]
 def latest_complete_window(now=None):
     rows=closed_rows("EURUSD",now)
     if len(rows)<12: raise RuntimeError("fewer than 12 closed 5m candles")
