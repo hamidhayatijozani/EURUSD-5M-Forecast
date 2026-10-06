@@ -13,7 +13,7 @@ class LiveEvaluationLoop:
  def _closed_cutoff(now):
   now=now.astimezone(timezone.utc); floor=now.replace(minute=(now.minute//5)*5,second=0,microsecond=0); return floor-timedelta(minutes=5)
  def step(self,now:Optional[datetime]=None):
-  now=(now or datetime.now(timezone.utc)).astimezone(timezone.utc); candle=self.client.fetch_latest_eurusd_candle()
+  now=(now or datetime.now(timezone.utc)).astimezone(timezone.utc); candle=self.client.fetch_latest_eurusd_candle(closed_only=True, now=now)
   if not candle: return None
   ts=datetime.fromisoformat(candle["timestamp"].replace("Z","+00:00")).astimezone(timezone.utc)
   if ts>self._closed_cutoff(now) or ts.minute%5!=0 or ts.second!=0: return None
