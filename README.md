@@ -21,6 +21,7 @@ Included:
 - temporal validity lock
 - post-window scoring
 - independent signal consensus aggregation
+- frozen external context fusion: news, 24h top-50 observed trader error, and data-center electricity stress
 - JSON forecast schema
 - UTC sample dataset
 - browser dashboard
@@ -32,7 +33,8 @@ Not claimed:
 - private MetaTrader trader-position access
 - certification
 - predictive superiority
-- live market-data connectivity in this repository snapshot
+- private trader access or a guaranteed 50-trader feed when no licensed/public signal source is configured
+- data-center electricity coverage when the external provider/API is unavailable
 
 The sample dataset is synthetic.
 
