@@ -111,7 +111,8 @@ class GitHubEURUSD5mHistoricalClient:
     def fetch_latest_eurusd_candle(self) -> Optional[Dict[str, Any]]:
         response = self.session.get(self.api_endpoint, timeout=self.timeout)
         response.raise_for_status()
-        lines = response.text.strip().splitlines()
+        text = response.text.decode("utf-8") if isinstance(response.text, bytes) else response.text
+        lines = text.strip().splitlines()
         if len(lines) < 2:
             return None
         header = [x.strip() for x in lines[0].split(",")]
