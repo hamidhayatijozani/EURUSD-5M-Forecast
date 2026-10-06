@@ -127,5 +127,5 @@ class GitHubEURUSD5mHistoricalClient:
             "close": float(data["close"]),
             "volume": float(data.get("volume", 0.0)),
         }
-        self._validate_candle(candle)
+        MarketIngestionClient._validate_candle(candle)
         return candle
