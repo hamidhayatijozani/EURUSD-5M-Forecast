@@ -83,18 +83,34 @@ class StatisticalEngine:
         b = max(1, min(int(block_size), n))
         rng = random.Random(seed)
         means = []
-        blocks = max(1, math.ceil(n / b))
-        for _ in range(max(100, int(resamples))):
-            sample = []
-            for _ in range(blocks):
-                start = rng.randrange(n)
-                for j in range(b):
-                    sample.append(x[(start + j) % n])
-                    if len(sample) >= n:
-                        break
-                if len(sample) >= n:
-                    break
-            means.append(sum(sample) / n)
+        # Precompute circular block totals to avoid rebuilding every element
+        # inside every bootstrap resample.
+        full_blocks = n // b
+        remainder = n % b
+        if full_blocks == 0:
+            full_blocks = 1
+            b = n
+            remainder = 0
+        block_sums = []
+        partial_sums = []
+        for start in range(n):
+            total = 0.0
+            partial = 0.0
+            for j in range(b):
+                value = x[(start + j) % n]
+                total += value
+                if j < remainder:
+                    partial += value
+            block_sums.append(total)
+            partial_sums.append(partial)
+        draws = max(100, int(resamples))
+        for _ in range(draws):
+            total = 0.0
+            for _ in range(full_blocks):
+                total += block_sums[rng.randrange(n)]
+            if remainder:
+                total += partial_sums[rng.randrange(n)]
+            means.append(total / n)
         means.sort()
         lower_i = max(0, min(len(means) - 1, int((alpha / 2) * len(means))))
         upper_i = max(0, min(len(means) - 1, int((1 - alpha / 2) * len(means)) - 1))
