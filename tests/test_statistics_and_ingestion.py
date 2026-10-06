@@ -1,5 +1,5 @@
 from claimlab.statistics import StatisticalEngine
-from claimlab.ingestion import MarketIngestionClient, YahooEURUSD5mClient
+from claimlab.ingestion import MarketIngestionClient, YahooEURUSD5mClient, GitHubEURUSD5mHistoricalClient
 
 
 def test_effective_n_reduces_for_persistent_series():
