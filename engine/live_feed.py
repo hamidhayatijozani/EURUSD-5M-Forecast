@@ -38,3 +38,15 @@ def fetch_1m_closes(symbol="EURUSD"):
 def closed_1m_rows(symbol="EURUSD",now=None):
     now=now or datetime.now(timezone.utc)
     return [(ts,p) for ts,p in fetch_1m_closes(symbol) if ts+timedelta(minutes=1)<=now]
+
+
+def aligned_closed_1m_series(now=None,limit=120):
+    series={k:closed_1m_rows(k,now) for k in SYMBOLS}
+    common=set(ts for ts,_ in series["EURUSD"])
+    for k in series:
+        common &= {ts for ts,_ in series[k]}
+    times=sorted(common)[-limit:]
+    if len(times)<13:
+        raise RuntimeError("fewer than 13 common closed one-minute candles")
+    maps={k:dict(series[k]) for k in series}
+    return {k:[maps[k][ts] for ts in times] for k in series},times
