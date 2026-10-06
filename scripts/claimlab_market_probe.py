@@ -1,19 +1,20 @@
-"""Probe the configured public EUR/USD 5m research feed and emit evidence."""
+"""Probe real EUR/USD research data and emit provenance evidence."""
 import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from claimlab.ingestion import YahooEURUSD5mClient
+from claimlab.ingestion import GitHubEURUSD5mHistoricalClient
 
 
 def main():
-    candle = YahooEURUSD5mClient().fetch_latest_eurusd_candle()
+    candle = GitHubEURUSD5mHistoricalClient().fetch_latest_eurusd_candle()
     if candle is None:
-        raise SystemExit("LIVE_MARKET_FEED_UNAVAILABLE")
+        raise SystemExit("HISTORICAL_MARKET_DATA_UNAVAILABLE")
     payload = {
-        "status": "LIVE_FEED_REACHABLE",
-        "source": "Yahoo Finance chart API",
+        "status": "REAL_HISTORICAL_FEED_REACHABLE",
+        "source": "getdata-finance EURUSD 5m GitHub dataset",
+        "live": False,
         "research_only": True,
         "observed_at": datetime.now(timezone.utc).isoformat(),
         "candle": candle,
