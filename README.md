@@ -24,6 +24,9 @@ Included:
 - frozen external context fusion: news, 24h top-50 observed trader error, and data-center electricity stress
 - JSON forecast schema
 - UTC sample dataset
+- reproducible real EUR/USD 5-minute historical ingestion probe via `claimlab/ingestion.py`
+- overlap-aware Effective-N, block bootstrap confidence intervals, Wilson intervals, and Benjamini-Hochberg correction
+- cryptographically locked ClaimLab registry and evidence artifacts from GitHub Actions
 - browser dashboard
 - pytest CI
 
@@ -36,7 +39,7 @@ Not claimed:
 - private trader access or a guaranteed 50-trader feed when no licensed/public signal source is configured
 - data-center electricity coverage when the external provider/API is unavailable
 
-The sample dataset is synthetic.
+The browser dashboard still uses synthetic values for its interactive demo. The ClaimLab ingestion path separately consumes and validates real historical EUR/USD 5-minute OHLCV data. No live-feed claim is made unless a live provider is explicitly configured and its probe succeeds.
 
 ## Run
 Requires Python 3.12+.
