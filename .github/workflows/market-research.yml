@@ -8,7 +8,7 @@ on:
 jobs:
   research:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -17,7 +17,13 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - run: PYTHONPATH=. pytest -q
       - run: PYTHONPATH=. python scripts/run_market_research.py
+      - name: Run real historical ClaimLab walk-forward
+        env:
+          PYTHONPATH: .
+        run: python scripts/claimlab_walkforward.py
       - uses: actions/upload-artifact@v4
         with:
           name: market-research-${{ github.run_number }}
-          path: research/results/latest.json
+          path: |
+            research/results/latest.json
+            evidence/claimlab-walkforward/
