@@ -21,7 +21,10 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install pytest
       - run: PYTHONPATH=. pytest -q
-      - run: PYTHONPATH=. LIVE_CYCLES=5 python scripts/live_minute_loop.py
+      - name: live minute forecast loop
+        env:
+          ELECTRICITY_MAPS_API_KEY: ${{ secrets.ELECTRICITY_MAPS_API_KEY }}
+        run: PYTHONPATH=. LIVE_CYCLES=5 python scripts/live_minute_loop.py
       - uses: actions/upload-artifact@v4
         with:
           name: live-minute-${{ github.run_number }}
