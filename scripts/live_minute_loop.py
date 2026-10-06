@@ -3,6 +3,7 @@ import json, os, subprocess, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from engine.context import collect_external_context
 from engine.experiments import combined
 from engine.live_feed import aligned_closed_1m_series
 
@@ -16,7 +17,8 @@ def iso(dt): return dt.astimezone(timezone.utc).isoformat()
 
 def load_state():
     return json.loads(STATE_PATH.read_text()) if STATE_PATH.exists() else {
-        "bias":0.0,"resolved":0,"correct":0,"errors":[],"last_prediction":None
+        "bias":0.0,"resolved":0,"correct":0,"errors":[],"last_prediction":None,
+        "context_cycles":0
     }
 
 def save_state(state):
@@ -31,11 +33,16 @@ def save_predictions(rows):
     PRED_PATH.parent.mkdir(parents=True,exist_ok=True)
     PRED_PATH.write_text("".join(json.dumps(x,sort_keys=True)+"\n" for x in rows),encoding="utf-8")
 
-def predict(series,state):
+def predict(series,state,context):
     if any(len(v)<12 for v in series.values()):
         raise RuntimeError("need at least 12 closed one-minute candles for all assets")
     s=combined(series)
-    adjusted=max(-1.0,min(1.0,s.score+state["bias"]))
+    # External context is deliberately capped. Price structure remains primary.
+    adjusted=s.score + 0.18*context["context_score"] + state["bias"]
+    # Infrastructure stress changes conviction, not direction.
+    if abs(context["power_score"]) >= 0.60:
+        adjusted *= 0.80
+    adjusted=max(-1.0,min(1.0,adjusted))
     direction="UP" if adjusted>0.12 else "DOWN" if adjusted<-0.12 else "FLAT"
     predicted_return=adjusted*0.0005
     return s,direction,adjusted,predicted_return
@@ -63,7 +70,7 @@ def settle(rows,latest_ts,latest_price,state):
 def git_commit():
     if not os.environ.get("GITHUB_ACTIONS"): return
     subprocess.run(["git","config","user.name","github-actions[bot]"],check=False)
-    subprocess.run(["git","config","user.email","41898282+github-actions[bot]@users.noreply.github.com"],check=False)
+    subprocess.run(["git","config","user.email","41898282+users.noreply.github.com"],check=False)
     subprocess.run(["git","add",str(STATE_PATH),str(PRED_PATH)],check=False)
     if subprocess.run(["git","diff","--cached","--quiet"]).returncode==0: return
     subprocess.run(["git","commit","-m","chore: persist live forecast evidence [skip ci]"],check=False)
@@ -79,7 +86,11 @@ def cycle():
 
     if state.get("last_prediction")!=iso(latest_ts):
         series={k:v[-60:] for k,v in data.items()}
-        signal,direction,score,predicted_return=predict(series,state)
+        context=collect_external_context(
+            list(zip([t for t in times[-120:]], data["EURUSD"][-120:])),
+            now=latest_ts
+        )
+        signal,direction,score,predicted_return=predict(series,state,context)
         row={
             "prediction_ts":iso(latest_ts),
             "target_ts":iso(latest_ts+timedelta(minutes=HORIZON)),
@@ -88,11 +99,14 @@ def cycle():
             "confidence":signal.confidence,"regime":signal.regime,
             "contradiction":signal.contradiction,
             "predicted_return":predicted_return,
+            "external_context":context,
             "status":"PENDING",
-            "engine":"COMBINATION+ONLINE-CALIBRATION"
+            "engine":"COMBINATION+NEWS+TOP50-24H-TRADERS+DATACENTER-POWER+ONLINE-CALIBRATION"
         }
         predictions.append(row)
         state["last_prediction"]=iso(latest_ts)
+        state["context_cycles"]=state.get("context_cycles",0)+1
+        state["last_external_context"]=context
         changed=True
         print(json.dumps(row,sort_keys=True))
 
