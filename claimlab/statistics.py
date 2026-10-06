@@ -142,7 +142,12 @@ class StatisticalEngine:
             return {"n": 0, "effective_n": 0, "status": "INSUFFICIENT_DATA"}
 
         mae_delta = [
-            float(r["baseline_error_absolute"]) - float(r["error_absolute"])
+            (
+                float(r["baseline_error_absolute"]) - float(r["error_absolute"])
+                if "baseline_error_absolute" in r and "error_absolute" in r
+                else abs(float(r["actual"]) - float(r["baseline_prediction"]))
+                - abs(float(r["actual"]) - float(r.get("prediction", 0.0)))
+            )
             for r in valid
         ]
         net = [float(r["friction_adjusted_return"]) for r in valid]
