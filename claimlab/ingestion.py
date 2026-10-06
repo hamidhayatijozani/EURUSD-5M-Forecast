@@ -91,3 +91,40 @@ class YahooEURUSD5mClient(MarketIngestionClient):
             return candle
         except (requests.RequestException, KeyError, IndexError, TypeError, ValueError):
             return None
+
+
+class GitHubEURUSD5mHistoricalClient:
+    """Real EUR/USD 5m OHLCV sample adapter.
+
+    The dataset is historical, not a live quote stream. It is therefore suitable
+    for reproducible research ingestion, but it must never be labeled live.
+    """
+
+    def __init__(self, timeout: int = 20, session=None):
+        self.api_endpoint = (
+            "https://raw.githubusercontent.com/getdata-finance/"
+            "eurusd-5m-ohlcv-forex-historical-data/main/EURUSD_5m.csv"
+        )
+        self.timeout = timeout
+        self.session = session or requests
+
+    def fetch_latest_eurusd_candle(self) -> Optional[Dict[str, Any]]:
+        response = self.session.get(self.api_endpoint, timeout=self.timeout)
+        response.raise_for_status()
+        lines = response.text.strip().splitlines()
+        if len(lines) < 2:
+            return None
+        header = [x.strip() for x in lines[0].split(",")]
+        row = [x.strip() for x in lines[-1].split(",")]
+        data = dict(zip(header, row))
+        candle = {
+            "symbol": "EURUSD",
+            "timestamp": data["datetime"],
+            "open": float(data["open"]),
+            "high": float(data["high"]),
+            "low": float(data["low"]),
+            "close": float(data["close"]),
+            "volume": float(data.get("volume", 0.0)),
+        }
+        self._validate_candle(candle)
+        return candle
