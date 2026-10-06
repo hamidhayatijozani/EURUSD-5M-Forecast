@@ -10,6 +10,7 @@ from engine.live_feed import aligned_closed_1m_series, aligned_closed_1m_ohlc
 from claimlab.ledger import Ledger
 from claimlab.registry import registry_hash
 from claimlab.resolver import resolve
+from claimlab.schema import Observation
 
 STATE_PATH=Path("research/live_state.json")
 PRED_PATH=Path("research/live_predictions.jsonl")
@@ -44,8 +45,8 @@ def predict(series,ohlc,state,context):
     predicted_return=adjusted*0.0005
     return base,direction,adjusted,predicted_return,candidates,base_forecast.score
 
-def settle(rows,latest_ts,prices,state,code_commit):
-    changed=False; price_map=_price_map(latest_ts if isinstance(latest_ts,list) else [],prices) if isinstance(latest_ts,list) else {}
+def settle(rows,times,prices,state,code_commit):
+    changed=False; price_map=_price_map(times,prices); resolved_at=iso(times[-1])
     for row in rows:
         if row.get("resolved_at"): continue
         target=row["target_ts"]
@@ -58,15 +59,15 @@ def settle(rows,latest_ts,prices,state,code_commit):
         candidates=[Candidate(x["name"],x["score"],x["predicted_return"]) for x in row.get("algorithms",[])]
         if candidates: update_algorithm_stats(state,candidates,actual)
         state["resolved"]+=1; state["correct"]+=int(hit); state["errors"].append(error); state["errors"]=state["errors"][-500:]
-        row.update(actual_return=actual,error=error,hit=hit,resolved_at=iso(latest_ts[0] if isinstance(latest_ts,list) else latest_ts),status="RESOLVED")
+        row.update(actual_return=actual,error=error,hit=hit,resolved_at=resolved_at,status="RESOLVED")
         obs=resolve({
           "schema_version":"claimlab.observation.v1","prediction_id":row["prediction_id"],
           "issued_at":row["prediction_ts"],"target_at":row["target_ts"],"feature_cutoff_at":row["prediction_ts"],
           "symbol":"EURUSD","horizon_seconds":HORIZON,"prediction":predicted,"code_commit":code_commit,
           "config_hash":row["config_hash"],"claim_registry_hash":registry_hash()},
           actual=actual,baseline_prediction=baseline,
-          resolved_at=iso(latest_ts[0] if isinstance(latest_ts,list) else latest_ts),friction=(FRICTION,0.0,0.0))
-        Ledger(CLAIM_LEDGER_PATH).append(__import__("claimlab.schema",fromlist=["Observation"]).Observation(**obs))
+          resolved_at=resolved_at,friction=(FRICTION,0.0,0.0))
+        Ledger(CLAIM_LEDGER_PATH).append(Observation(**obs))
         changed=True
     return changed
 
