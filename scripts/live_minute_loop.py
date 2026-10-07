@@ -88,7 +88,14 @@ def settle(rows,times,prices,state,code_commit):
           "issued_at":row["prediction_ts"],"target_at":row["target_at"],
           "feature_cutoff_at":row["prediction_ts"],
           "symbol":"EURUSD","horizon_seconds":HORIZON*60,"prediction":predicted,"code_commit":code_commit,
-          "config_hash":row["config_hash"],"claim_registry_hash":registry_hash(),\n          "provider":row.get("provider","Yahoo"),"source_candle_ts":row.get("source_candle_ts",row["prediction_ts"]),\n          "observed_at":row.get("observed_at",row["prediction_ts"]),\n          "data_age_seconds":float(row.get("data_age_seconds",0.0)),\n          "freshness_limit_seconds":float(row.get("freshness_limit_seconds",90.0)),\n          "freshness_status":row.get("freshness_status","FRESH")},
+          "config_hash": row["config_hash"],
+          "claim_registry_hash": registry_hash(),
+          "provider": row.get("provider", "Yahoo"),
+          "source_candle_ts": row.get("source_candle_ts", row["prediction_ts"]),
+          "observed_at": row.get("observed_at", row["prediction_ts"]),
+          "data_age_seconds": float(row.get("data_age_seconds", 0.0)),
+          "freshness_limit_seconds": float(row.get("freshness_limit_seconds", 90.0)),
+          "freshness_status": row.get("freshness_status", "FRESH")},
           actual=actual,baseline_prediction=baseline,
           resolved_at=resolved_at,friction=(FRICTION,0.0,0.0))
         ledger=Ledger(CLAIM_LEDGER_PATH)
@@ -128,7 +135,17 @@ def cycle():
     data={k:[v[close_index[ts]] for ts in common] for k,v in data.items()}
     ohlc_map={k:[v[ohlc_index[ts]] for ts in common] for k,v in ohlc_map.items()}
     times=ohlc_times=common
-    latest_ts=times[-1]; latest_price=data["EURUSD"][-1];\n    source_candle_ts=latest_ts+timedelta(minutes=1)\n    observed_at=datetime.now(timezone.utc)\n    data_age_seconds=max(0.0,(observed_at-source_candle_ts).total_seconds())\n    if data_age_seconds>90:\n        raise RuntimeError(f"STALE_EURUSD_FRESHNESS_EVIDENCE:{data_age_seconds:.1f}s")\n    state=load_state(); predictions=read_predictions()
+    latest_ts = times[-1]
+    latest_price = data["EURUSD"][-1]
+    # Yahoo timestamps label candle opens. Measure freshness from the
+    # source candle timestamp to the actual observation time.
+    source_candle_ts = latest_ts
+    observed_at = datetime.now(timezone.utc)
+    data_age_seconds = max(0.0, (observed_at - source_candle_ts).total_seconds())
+    if data_age_seconds > 90:
+        raise RuntimeError(f"STALE_EURUSD_FRESHNESS_EVIDENCE:{data_age_seconds:.1f}s")
+    state = load_state()
+    predictions = read_predictions()
     prices= data["EURUSD"]; changed=settle(predictions,times,prices,state,os.environ.get("GITHUB_SHA","LOCAL"))
     if state.get("last_prediction")!=iso(latest_ts):
         series={k:v[-60:] for k,v in data.items()}; context=collect_external_context(list(zip(times[-120:],data["EURUSD"][-120:])),now=latest_ts)
