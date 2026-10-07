@@ -28,8 +28,7 @@ def main() -> None:
 
     ledger_path = out_dir / "observations.jsonl"
     ledger = Ledger(ledger_path)
-    for observation in observations:
-        ledger.append(observation)
+    ledger.append_many(observations)
 
     capsule = build_capsule(
         observations,

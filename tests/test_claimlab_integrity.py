@@ -40,4 +40,6 @@ def test_null_centered_bootstrap_does_not_use_observed_mean_as_null():
     s=StatisticalEngine.block_bootstrap_ci(x,5,resamples=200,seed=7)
     assert s["p_value"] < 0.05
     z=StatisticalEngine.block_bootstrap_ci([-v for v in x],5,resamples=200,seed=7)
-    assert z["p_value"] > 0.5
+    # A two-sided null-centered test must treat equal-magnitude effects symmetrically.
+    assert z["p_value"] < 0.05
+    assert abs(s["p_value"] - z["p_value"]) < 1e-12

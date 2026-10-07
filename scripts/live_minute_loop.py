@@ -46,7 +46,7 @@ def predict(series,ohlc,state,context):
     return base,direction,adjusted,predicted_return,candidates,base_forecast.score
 
 def settle(rows,times,prices,state,code_commit):
-    changed=False; price_map=_price_map(times,prices); resolved_at=iso(times[-1])
+    changed=False; price_map=_price_map(times,prices)
     for row in rows:
         if row.get("resolved_at"): continue
         target=row["target_ts"]
@@ -60,6 +60,10 @@ def settle(rows,times,prices,state,code_commit):
         if candidates: update_algorithm_stats(state,candidates,actual)
         state["resolved"]+=1; state["correct"]+=int(hit); state["errors"].append(error); state["errors"]=state["errors"][-500:]
         row.update(actual_return=actual,error=error,hit=hit,resolved_at=resolved_at,status="RESOLVED")
+        # Yahoo 1-minute candle timestamps mark candle opens. The target close
+        # becomes observable at target + 60 seconds, not at a later polling time.
+        target_dt=datetime.fromisoformat(target.replace("Z","+00:00"))
+        resolved_at=iso(target_dt+timedelta(minutes=1))
         obs=resolve({
           "schema_version":"claimlab.observation.v1","prediction_id":row["prediction_id"],
           "issued_at":row["prediction_ts"],"target_at":row["target_ts"],"feature_cutoff_at":row["prediction_ts"],
@@ -67,7 +71,10 @@ def settle(rows,times,prices,state,code_commit):
           "config_hash":row["config_hash"],"claim_registry_hash":registry_hash()},
           actual=actual,baseline_prediction=baseline,
           resolved_at=resolved_at,friction=(FRICTION,0.0,0.0))
-        Ledger(CLAIM_LEDGER_PATH).append(Observation(**obs))
+        ledger=Ledger(CLAIM_LEDGER_PATH)
+        ledger.append(Observation(**obs))
+        if not ledger.verify():
+            raise RuntimeError("LIVE_CLAIM_LEDGER_INTEGRITY_FAILURE")
         changed=True
     return changed
 
@@ -75,13 +82,26 @@ def git_commit():
     if not os.environ.get("GITHUB_ACTIONS"): return
     subprocess.run(["git","config","user.name","github-actions[bot]"],check=False)
     subprocess.run(["git","config","user.email","41898282+github-actions[bot]@users.noreply.github.com"],check=False)
-    subprocess.run(["git","add",str(STATE_PATH),str(PRED_PATH),str(CLAIM_LEDGER_PATH)],check=False)
+    evidence_paths=[p for p in (STATE_PATH,PRED_PATH,CLAIM_LEDGER_PATH) if p.exists()]
+    if not evidence_paths:return
+    subprocess.run(["git","add",*[str(p) for p in evidence_paths]],check=True)
     if subprocess.run(["git","diff","--cached","--quiet"]).returncode==0:return
-    subprocess.run(["git","commit","-m","chore: persist live ClaimLab evidence [skip ci]"],check=False); subprocess.run(["git","push"],check=False)
+    subprocess.run(["git","commit","-m","chore: persist live ClaimLab evidence [skip ci]"],check=True)
+    # Never report a successful live cycle when its evidence failed to persist.
+    subprocess.run(["git","push"],check=True)
 
 def cycle():
     now=datetime.now(timezone.utc); data,times=aligned_closed_1m_series(now); ohlc_map,ohlc_times=aligned_closed_1m_ohlc(now)
-    if ohlc_times[-1]!=times[-1]: raise RuntimeError("OHLC and close information locks are not aligned")
+    # The two HTTP fetches can straddle a minute boundary. Join only timestamps
+    # present in both snapshots; never pair prices from different bars.
+    common=sorted(set(times).intersection(ohlc_times))
+    if len(common)<30:
+        raise RuntimeError("fewer than 30 common close/OHLC timestamps")
+    close_index={ts:i for i,ts in enumerate(times)}
+    ohlc_index={ts:i for i,ts in enumerate(ohlc_times)}
+    data={k:[v[close_index[ts]] for ts in common] for k,v in data.items()}
+    ohlc_map={k:[v[ohlc_index[ts]] for ts in common] for k,v in ohlc_map.items()}
+    times=ohlc_times=common
     latest_ts=times[-1]; latest_price=data["EURUSD"][-1]; state=load_state(); predictions=read_predictions()
     prices= data["EURUSD"]; changed=settle(predictions,times,prices,state,os.environ.get("GITHUB_SHA","LOCAL"))
     if state.get("last_prediction")!=iso(latest_ts):
@@ -101,8 +121,16 @@ def cycle():
     if changed: git_commit()
 
 def main():
-    for i in range(int(os.environ.get("LIVE_CYCLES","5"))):
-        try: cycle()
-        except Exception as exc: print(f"LIVE_CYCLE_ERROR: {type(exc).__name__}: {exc}")
-        if i+1<int(os.environ.get("LIVE_CYCLES","5")): time.sleep(SLEEP_SECONDS)
+    cycles=int(os.environ.get("LIVE_CYCLES","5"))
+    successful=0
+    for i in range(cycles):
+        try:
+            cycle()
+            successful+=1
+        except Exception as exc:
+            print(f"LIVE_CYCLE_ERROR: {type(exc).__name__}: {exc}")
+        if i+1<cycles:
+            time.sleep(SLEEP_SECONDS)
+    if successful==0:
+        raise SystemExit("NO_SUCCESSFUL_LIVE_CYCLES")
 if __name__=="__main__": main()

@@ -10,8 +10,8 @@ import csv
 import hashlib
 import io
 import json
-from datetime import datetime, timezone
-from statistics import mean
+from datetime import datetime, timedelta, timezone
+from statistics import mean, pstdev
 from typing import Iterable, Sequence
 
 from .arena import score
@@ -94,15 +94,24 @@ def walk_forward(
     returns = [_return(rows[i - 1]["close"], rows[i]["close"]) for i in range(1, len(rows))]
     observations: list[Observation] = []
 
-    # i is the issued/closed bar. j=i+1 is the first bar not known at issuance.
-    for i in range(lookback, len(rows) - 2):
-        issued = rows[i]["timestamp"]
-        target = rows[i + 1]["timestamp"]
-        # The issued bar is closed and therefore known. The target bar is not.
-        feature_returns = returns[i - lookback + 1 : i + 1]
+    # Timestamps in the source identify candle opens. A forecast is issued at
+    # the close of bar i, and resolves at the close of the next 5-minute bar.
+    # Skip gaps rather than pretending the next available candle is a 5m target.
+    for i in range(lookback, len(rows) - 1):
+        window_start = i - lookback
+        contiguous = all(
+            rows[j]["timestamp"] - rows[j - 1]["timestamp"] == timedelta(minutes=5)
+            for j in range(window_start + 1, i + 2)
+        )
+        if not contiguous:
+            continue
+        issued = rows[i]["timestamp"] + timedelta(minutes=5)
+        target = rows[i + 1]["timestamp"] + timedelta(minutes=5)
+        # returns[j - 1] ends at bar j; these features end at the issued bar.
+        feature_returns = returns[i - lookback : i]
         prediction = mean(feature_returns)
         baseline = 0.0
-        actual = returns[i + 1]
+        actual = returns[i]
         pred = {
             "schema_version": "claimlab.observation.v1",
             "prediction_id": f"eurusd-m5-{i:08d}",
@@ -136,6 +145,85 @@ def walk_forward(
     }
 
 
+def regime_robustness(
+    market_rows: Sequence[dict],
+    observation_rows: Sequence[dict],
+    *,
+    lookback: int = 12,
+    bootstrap_resamples: int = 500,
+) -> dict:
+    """Past-only volatility regimes for sequential out-of-sample observations.
+
+    Thresholds are estimated from previously observed rolling volatilities only.
+    The current observation's volatility is added to history after classification.
+    """
+    from .arena import score
+
+    if lookback < 2:
+        raise ValueError("LOOKBACK_TOO_SMALL")
+    returns = [
+        _return(market_rows[i - 1]["close"], market_rows[i]["close"])
+        for i in range(1, len(market_rows))
+    ]
+    history: list[float] = []
+    thresholds = None
+    grouped = {"LOW": [], "MEDIUM": [], "HIGH": []}
+    warmup = 0
+
+    index_by_issue = {
+        _iso(row["timestamp"] + timedelta(minutes=5)): i
+        for i, row in enumerate(market_rows)
+    }
+    for row in observation_rows:
+        i = index_by_issue.get(row.get("issued_at"))
+        if i is None or i < lookback or i >= len(market_rows) - 1:
+            continue
+        feature_returns = returns[i - lookback : i]
+        volatility = pstdev(feature_returns) if len(feature_returns) > 1 else 0.0
+
+        # Re-estimate on a bounded, past-only sample every 25 observations.
+        if len(history) >= 50 and len(history) % 25 == 0:
+            sample = sorted(history[-500:])
+            thresholds = (
+                sample[int(0.33 * (len(sample) - 1))],
+                sample[int(0.67 * (len(sample) - 1))],
+            )
+
+        if thresholds is None:
+            regime = "WARMUP"
+            warmup += 1
+        elif volatility <= thresholds[0]:
+            regime = "LOW"
+        elif volatility >= thresholds[1]:
+            regime = "HIGH"
+        else:
+            regime = "MEDIUM"
+
+        history.append(volatility)
+        if regime != "WARMUP" and row.get("status") == "VALID":
+            grouped[regime].append(row)
+
+    metrics = {}
+    for regime, group in grouped.items():
+        if not group:
+            metrics[regime] = {"n": 0, "status": "INSUFFICIENT_DATA"}
+        else:
+            metrics[regime] = score(
+                group, horizon=5, bootstrap_resamples=bootstrap_resamples
+            )
+    return {
+        "method": "past-only expanding warmup + rolling 500-volatility quantiles",
+        "threshold_lookback_max": 500,
+        "threshold_refresh_every": 25,
+        "warmup_observations_excluded": warmup,
+        "metrics": metrics,
+        "scientific_boundary": (
+            "Historical sequential out-of-sample regimes; not evidence of live "
+            "predictive superiority or profitability."
+        ),
+    }
+
+
 def build_capsule(
     observations: Sequence[Observation],
     *,
@@ -151,6 +239,12 @@ def build_capsule(
         horizon=5,
         bootstrap_resamples=2000,
         alpha=0.05,
+    )
+    stats["regime_robustness"] = regime_robustness(
+        parse_csv(dataset_text),
+        rows,
+        lookback=int(config.get("lookback_bars", 12)),
+        bootstrap_resamples=500,
     )
     registry = load_registry()
     duplicate_count = len(rows) - len({r["prediction_id"] for r in rows})

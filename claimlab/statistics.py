@@ -63,7 +63,9 @@ class StatisticalEngine:
         hi=max(0,min(len(ordered)-1,int((1-alpha/2)*len(ordered))-1))
         observed=sum(x)/n
         null=StatisticalEngine._draw_means([v-observed for v in x],block_size,resamples,seed+7919,0.0)
-        p=(sum(v>=observed for v in null)+1)/(len(null)+1)
+        # Two-sided test: the null distribution is centered at zero, so compare
+        # absolute deviations rather than only positive-tail draws.
+        p=(sum(abs(v)>=abs(observed) for v in null)+1)/(len(null)+1)
         return {"mean":observed,"ci_lower":ordered[lo],"ci_upper":ordered[hi],"p_value":min(1.0,p)}
 
     @staticmethod

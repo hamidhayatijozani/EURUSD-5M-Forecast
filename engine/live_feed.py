@@ -26,14 +26,61 @@ def latest_complete_window(now=None):
     if len(rows)<12: raise RuntimeError("fewer than 12 closed 5m candles")
     return [p for _,p in rows[-12:]]
 
+def _align_asof(master, series, *, max_age, limit):
+    """Align auxiliary quotes to EURUSD timestamps using past data only."""
+    ordered={k:sorted(v,key=lambda row:row[0]) for k,v in series.items()}
+    pointers={k:0 for k in ordered}
+    aligned={k:[] for k in ordered}
+    times=[]
+    for master_row in master:
+        ts=master_row[0]
+        selected={}
+        valid=True
+        for symbol,rows in ordered.items():
+            if not rows:
+                valid=False
+                break
+            j=pointers[symbol]
+            while j+1<len(rows) and rows[j+1][0] <= ts:
+                j+=1
+            pointers[symbol]=j
+            row=rows[j]
+            # Never use a future quote; reject stale context rather than invent it.
+            if row[0] > ts or ts-row[0] > max_age:
+                valid=False
+                break
+            selected[symbol]=row
+        if not valid:
+            continue
+        times.append(ts)
+        for symbol,row in selected.items():
+            aligned[symbol].append(row)
+    if limit:
+        times=times[-limit:]
+        aligned={k:v[-limit:] for k,v in aligned.items()}
+    return aligned,times
+
+
+def _latest_contiguous(aligned, times, *, step):
+    """Keep only the newest uninterrupted cadence to preserve target horizons."""
+    if not times:
+        return {k:[] for k in aligned},[]
+    start=len(times)-1
+    while start>0 and times[start]-times[start-1]==step:
+        start-=1
+    return {k:v[start:] for k,v in aligned.items()},times[start:]
+
+
 def aligned_closed_series(now=None,limit=300):
     series={k:closed_rows(k,now) for k in SYMBOLS}
-    common=set(ts for ts,_ in series["EURUSD"])
-    for k in series: common &= {ts for ts,_ in series[k]}
-    times=sorted(common)[-limit:]
-    if len(times)<13: raise RuntimeError("fewer than 13 common closed candles")
-    maps={k:dict(series[k]) for k in series}
-    return {k:[maps[k][ts] for ts in times] for k in series},times
+    master=series["EURUSD"]
+    aligned,times=_align_asof(
+        master,series,max_age=timedelta(minutes=15),limit=limit
+    )
+    aligned,times=_latest_contiguous(aligned,times,step=timedelta(minutes=5))
+    if len(times)<13:
+        raise RuntimeError("fewer than 13 fresh past-aligned closed 5m candles")
+    return {k:[row[1] for row in aligned[k]] for k in aligned},times
 
 def fetch_1m_ohlc(symbol="EURUSD"):
     r=_fetch(symbol,BASE_1M)
@@ -52,20 +99,24 @@ def closed_1m_rows(symbol="EURUSD",now=None):
 
 def aligned_closed_1m_series(now=None,limit=120):
     series={k:closed_1m_rows(k,now) for k in SYMBOLS}
-    common=set(ts for ts,_ in series["EURUSD"])
-    for k in series: common &= {ts for ts,_ in series[k]}
-    times=sorted(common)[-limit:]
-    if len(times)<13: raise RuntimeError("fewer than 13 common closed one-minute candles")
-    maps={k:dict(series[k]) for k in series}
-    return {k:[maps[k][ts] for ts in times] for k in series},times
+    master=series["EURUSD"]
+    aligned,times=_align_asof(
+        master,series,max_age=timedelta(minutes=10),limit=limit
+    )
+    aligned,times=_latest_contiguous(aligned,times,step=timedelta(minutes=1))
+    if len(times)<30:
+        raise RuntimeError("fewer than 30 fresh past-aligned closed one-minute candles")
+    return {k:[row[1] for row in aligned[k]] for k in aligned},times
 
 def aligned_closed_1m_ohlc(now=None,limit=120):
-    series={k:fetch_1m_ohlc(k) for k in SYMBOLS}
     now=now or datetime.now(timezone.utc)
-    closed={k:[row for row in rows if row[0]+timedelta(minutes=1)<=now] for k,rows in series.items()}
-    common=set(ts for ts,*_ in closed["EURUSD"])
-    for k in closed: common &= {ts for ts,*_ in closed[k]}
-    times=sorted(common)[-limit:]
-    if len(times)<13: raise RuntimeError("fewer than 13 common closed one-minute OHLC candles")
-    maps={k:{row[0]:row[1:] for row in closed[k]} for k in closed}
-    return {k:[maps[k][ts] for ts in times] for k in maps},times
+    series={k:[row for row in fetch_1m_ohlc(k) if row[0]+timedelta(minutes=1)<=now]
+            for k in SYMBOLS}
+    master=series["EURUSD"]
+    aligned,times=_align_asof(
+        master,series,max_age=timedelta(minutes=10),limit=limit
+    )
+    aligned,times=_latest_contiguous(aligned,times,step=timedelta(minutes=1))
+    if len(times)<30:
+        raise RuntimeError("fewer than 30 fresh past-aligned closed one-minute OHLC candles")
+    return {k:[row[1:] for row in aligned[k]] for k in aligned},times

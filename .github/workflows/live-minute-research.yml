@@ -33,3 +33,4 @@ jobs:
           path: |
             research/live_state.json
             research/live_predictions.jsonl
+            research/claimlab_live_observations.jsonl
