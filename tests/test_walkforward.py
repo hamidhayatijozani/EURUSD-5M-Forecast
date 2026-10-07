@@ -36,4 +36,15 @@ def test_walk_forward_never_uses_target_bar_as_feature():
     assert first["feature_cutoff_at"] == first["issued_at"]
     assert first["issued_at"] < first["target_at"]
     assert first["horizon_seconds"] == 300
+    # The target return is resolved from the target bar, not the following bar.
+    expected = rows[13]["close"] / rows[12]["close"] - 1.0
+    assert abs(first["actual"] - expected) < 1e-12
+
+    # Mutating the target close must not change the forecast made at bar 12.
+    changed_rows = [dict(row) for row in rows]
+    changed_rows[13]["close"] *= 1.25
+    changed_obs, _ = walk_forward(changed_rows, code_commit="test")
+    changed_first = json.loads(changed_obs[0].canonical())
+    assert changed_first["prediction"] == first["prediction"]
+    assert changed_first["actual"] != first["actual"]
     assert cfg["baseline"] == "zero_return"
