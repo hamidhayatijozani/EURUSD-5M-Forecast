@@ -74,10 +74,11 @@ def test_ledger_is_append_only_and_detects_tampering(tmp_path: Path):
                        resolved_at="2026-10-06T10:05:00Z")
     obs = Observation(**resolved)
     ledger = Ledger(tmp_path / "ledger.jsonl")
-    ledger.append(obs)
+    first_hash = ledger.append(obs)
     assert ledger.verify() is True
-    with pytest.raises(ValueError, match="duplicate prediction_id"):
-        ledger.append(obs)
+    # Retry after an interrupted state commit must not duplicate the ledger row.
+    assert ledger.append(obs) == first_hash
+    assert len(ledger._rows()) == 1
 
     row = json.loads(ledger.path.read_text().splitlines()[0])
     row["actual"] = 0.9
