@@ -62,7 +62,7 @@ def test_live_feed_rejects_stale_eurusd_quotes(monkeypatch):
 
     now = datetime(2026, 10, 6, 12, 10, 30, tzinfo=timezone.utc)
     rows = [
-        (now - timedelta(minutes=5 - i), 1.1 + i * 0.0001)
+        (now.replace(second=0, microsecond=0) - timedelta(minutes=8 - i), 1.1 + i * 0.0001)
         for i in range(5)
     ]
     monkeypatch.setattr(lf, "closed_1m_rows", lambda symbol, when=None: rows if symbol == "EURUSD" else [])
