@@ -32,7 +32,8 @@ def _align_asof(master, series, *, max_age, limit):
     pointers={k:0 for k in ordered}
     aligned={k:[] for k in ordered}
     times=[]
-    for ts,_ in master:
+    for master_row in master:
+        ts=master_row[0]
         selected={}
         valid=True
         for symbol,rows in ordered.items():
