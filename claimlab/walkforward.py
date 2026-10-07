@@ -10,7 +10,7 @@ import csv
 import hashlib
 import io
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from statistics import mean, pstdev
 from typing import Iterable, Sequence
 
@@ -94,13 +94,20 @@ def walk_forward(
     returns = [_return(rows[i - 1]["close"], rows[i]["close"]) for i in range(1, len(rows))]
     observations: list[Observation] = []
 
-    # i is the issued/closed bar. j=i+1 is the first bar not known at issuance.
+    # Timestamps in the source identify candle opens. A forecast is issued at
+    # the close of bar i, and resolves at the close of the next 5-minute bar.
+    # Skip gaps rather than pretending the next available candle is a 5m target.
     for i in range(lookback, len(rows) - 1):
-        issued = rows[i]["timestamp"]
-        target = rows[i + 1]["timestamp"]
-        # The issued bar is closed and therefore known. The target bar is not.
-        # returns[j - 1] is the return ending at bar j. Use only returns
-        # ending at or before the issued bar i; never include the target bar.
+        window_start = i - lookback
+        contiguous = all(
+            rows[j]["timestamp"] - rows[j - 1]["timestamp"] == timedelta(minutes=5)
+            for j in range(window_start + 1, i + 2)
+        )
+        if not contiguous:
+            continue
+        issued = rows[i]["timestamp"] + timedelta(minutes=5)
+        target = rows[i + 1]["timestamp"] + timedelta(minutes=5)
+        # returns[j - 1] ends at bar j; these features end at the issued bar.
         feature_returns = returns[i - lookback : i]
         prediction = mean(feature_returns)
         baseline = 0.0
@@ -163,10 +170,14 @@ def regime_robustness(
     grouped = {"LOW": [], "MEDIUM": [], "HIGH": []}
     warmup = 0
 
-    for offset, row in enumerate(observation_rows):
-        i = lookback + offset
-        if i >= len(market_rows) - 1:
-            break
+    index_by_issue = {
+        _iso(row["timestamp"] + timedelta(minutes=5)): i
+        for i, row in enumerate(market_rows)
+    }
+    for row in observation_rows:
+        i = index_by_issue.get(row.get("issued_at"))
+        if i is None or i < lookback or i >= len(market_rows) - 1:
+            continue
         feature_returns = returns[i - lookback : i]
         volatility = pstdev(feature_returns) if len(feature_returns) > 1 else 0.0
 
