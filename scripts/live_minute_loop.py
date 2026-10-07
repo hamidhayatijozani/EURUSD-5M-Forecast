@@ -46,7 +46,7 @@ def predict(series,ohlc,state,context):
     return base,direction,adjusted,predicted_return,candidates,base_forecast.score
 
 def settle(rows,times,prices,state,code_commit):
-    changed=False; price_map=_price_map(times,prices); resolved_at=iso(times[-1])
+    changed=False; price_map=_price_map(times,prices)
     for row in rows:
         if row.get("resolved_at"): continue
         target=row["target_ts"]
@@ -60,6 +60,10 @@ def settle(rows,times,prices,state,code_commit):
         if candidates: update_algorithm_stats(state,candidates,actual)
         state["resolved"]+=1; state["correct"]+=int(hit); state["errors"].append(error); state["errors"]=state["errors"][-500:]
         row.update(actual_return=actual,error=error,hit=hit,resolved_at=resolved_at,status="RESOLVED")
+        # Yahoo 1-minute candle timestamps mark candle opens. The target close
+        # becomes observable at target + 60 seconds, not at a later polling time.
+        target_dt=datetime.fromisoformat(target.replace("Z","+00:00"))
+        resolved_at=iso(target_dt+timedelta(minutes=1))
         obs=resolve({
           "schema_version":"claimlab.observation.v1","prediction_id":row["prediction_id"],
           "issued_at":row["prediction_ts"],"target_at":row["target_ts"],"feature_cutoff_at":row["prediction_ts"],
@@ -75,9 +79,11 @@ def git_commit():
     if not os.environ.get("GITHUB_ACTIONS"): return
     subprocess.run(["git","config","user.name","github-actions[bot]"],check=False)
     subprocess.run(["git","config","user.email","41898282+github-actions[bot]@users.noreply.github.com"],check=False)
-    subprocess.run(["git","add",str(STATE_PATH),str(PRED_PATH),str(CLAIM_LEDGER_PATH)],check=False)
+    subprocess.run(["git","add",str(STATE_PATH),str(PRED_PATH),str(CLAIM_LEDGER_PATH)],check=True)
     if subprocess.run(["git","diff","--cached","--quiet"]).returncode==0:return
-    subprocess.run(["git","commit","-m","chore: persist live ClaimLab evidence [skip ci]"],check=False); subprocess.run(["git","push"],check=False)
+    subprocess.run(["git","commit","-m","chore: persist live ClaimLab evidence [skip ci]"],check=True)
+    # Never report a successful live cycle when its evidence failed to persist.
+    subprocess.run(["git","push"],check=True)
 
 def cycle():
     now=datetime.now(timezone.utc); data,times=aligned_closed_1m_series(now); ohlc_map,ohlc_times=aligned_closed_1m_ohlc(now)
