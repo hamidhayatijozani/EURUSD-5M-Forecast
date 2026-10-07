@@ -27,3 +27,13 @@ def test_batch_append_preserves_hash_chain_and_rejects_duplicates(tmp_path):
     with pytest.raises(ValueError, match="duplicate prediction_id"):
         ledger.append_many([make_observation("p2", 2)])
     assert ledger.verify()
+
+
+def test_live_append_is_idempotent_for_identical_observation(tmp_path):
+    ledger = Ledger(tmp_path / "observations.jsonl")
+    observation = make_observation("retry-1", 0)
+    first = ledger.append(observation)
+    second = ledger.append(observation)
+    assert first == second
+    assert len(ledger._rows()) == 1
+    assert ledger.verify()
