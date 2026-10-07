@@ -3,7 +3,7 @@ import json, os, subprocess, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from engine.algorithm_factory import adaptive_ensemble, update_algorithm_stats, Candidate
-from engine.experiments import combined
+from engine.experiments import combined, pst_signal
 from engine.context import collect_external_context
 from engine.forecast import forecast
 from engine.live_feed import aligned_closed_1m_series, aligned_closed_1m_ohlc
