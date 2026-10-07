@@ -3,7 +3,7 @@ import json, os, subprocess, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from engine.algorithm_factory import adaptive_ensemble, update_algorithm_stats, Candidate
-from engine.experiments import combined
+from engine.experiments import combined, pst_signal
 from engine.context import collect_external_context
 from engine.forecast import forecast
 from engine.live_feed import aligned_closed_1m_series, aligned_closed_1m_ohlc
@@ -18,6 +18,7 @@ CLAIM_LEDGER_PATH=Path("research/claimlab_live_observations.jsonl")
 FRICTION=0.00002
 HORIZON=5
 SLEEP_SECONDS=60
+LIVE_DATA_CONTRACT_VERSION="freshness-90s-v1"
 
 def iso(dt): return dt.astimezone(timezone.utc).isoformat()
 def load_state():
@@ -47,29 +48,46 @@ def predict(series,ohlc,state,context):
     predicted_return=adjusted*0.0005
     return base,direction,adjusted,predicted_return,candidates,base_forecast.score
 
-def settle(rows,times,prices,state,code_commit):
-    changed=False; price_map=_price_map(times,prices)
+def _prediction_times(latest_bar_open):
+    """Translate 1m candle-open labels to exact close/issue/target event times."""
+    issued_at=latest_bar_open+timedelta(minutes=1)
+    target_bar_open=latest_bar_open+timedelta(minutes=HORIZON)
+    target_at=target_bar_open+timedelta(minutes=1)
+    return issued_at,target_bar_open,target_at
+
+
+def _quarantine_legacy_predictions(rows):
+    changed=False
     for row in rows:
+        if row.get("data_contract_version") != LIVE_DATA_CONTRACT_VERSION and row.get("status")=="PENDING":
+            row.update(status="EXCLUDED_PRE_CONTRACT",
+                       excluded_reason="Prediction predates freshness-checked timing contract")
+            changed=True
+    return changed
+
+
+def settle(rows,times,prices,state,code_commit):
+    changed=_quarantine_legacy_predictions(rows)
+    price_map=_price_map(times,prices)
+    for row in rows:
+        # Never backfill pre-contract predictions into the clean evidence ledger.
+        if row.get("data_contract_version") != LIVE_DATA_CONTRACT_VERSION:
+            continue
         if row.get("resolved_at"): continue
-        target=row["target_ts"]
+        target=row["target_ts"]  # candle-open key for price lookup
         if target not in price_map: continue
         actual=price_map[target]/float(row["entry_price"])-1.0
         predicted=float(row["predicted_return"]); baseline=float(row["baseline_prediction"])
         error=actual-predicted
-        state["bias"]=max(-0.5,min(0.5,0.90*state["bias"]+0.10*error/0.0005))
-        hit=((predicted>0 and actual>FRICTION) or (predicted<0 and actual<-FRICTION))
-        candidates=[Candidate(x["name"],x["score"],x["predicted_return"]) for x in row.get("algorithms",[])]
-        if candidates: update_algorithm_stats(state,candidates,actual)
-        state["resolved"]+=1; state["correct"]+=int(hit); state["errors"].append(error); state["errors"]=state["errors"][-500:]
-        row.update(actual_return=actual,error=error,hit=hit,resolved_at=resolved_at,status="RESOLVED")
-        # Yahoo 1-minute candle timestamps mark candle opens. The target close
-        # becomes observable at target + 60 seconds, not at a later polling time.
         target_dt=datetime.fromisoformat(target.replace("Z","+00:00"))
         resolved_at=iso(target_dt+timedelta(minutes=1))
+        if row.get("target_at") != resolved_at:
+            raise RuntimeError("LIVE_TARGET_CLOSE_TIMESTAMP_MISMATCH")
         obs=resolve({
           "schema_version":"claimlab.observation.v1","prediction_id":row["prediction_id"],
-          "issued_at":row["prediction_ts"],"target_at":row["target_ts"],"feature_cutoff_at":row["prediction_ts"],
-          "symbol":"EURUSD","horizon_seconds":HORIZON,"prediction":predicted,"code_commit":code_commit,
+          "issued_at":row["prediction_ts"],"target_at":row["target_at"],
+          "feature_cutoff_at":row["prediction_ts"],
+          "symbol":"EURUSD","horizon_seconds":HORIZON*60,"prediction":predicted,"code_commit":code_commit,
           "config_hash":row["config_hash"],"claim_registry_hash":registry_hash()},
           actual=actual,baseline_prediction=baseline,
           resolved_at=resolved_at,friction=(FRICTION,0.0,0.0))
@@ -77,6 +95,12 @@ def settle(rows,times,prices,state,code_commit):
         ledger.append(Observation(**obs))
         if not ledger.verify():
             raise RuntimeError("LIVE_CLAIM_LEDGER_INTEGRITY_FAILURE")
+        state["bias"]=max(-0.5,min(0.5,0.90*state["bias"]+0.10*error/0.0005))
+        hit=((predicted>0 and actual>FRICTION) or (predicted<0 and actual<-FRICTION))
+        candidates=[Candidate(x["name"],x["score"],x["predicted_return"]) for x in row.get("algorithms",[])]
+        if candidates: update_algorithm_stats(state,candidates,actual)
+        state["resolved"]+=1; state["correct"]+=int(hit); state["errors"].append(error); state["errors"]=state["errors"][-500:]
+        row.update(actual_return=actual,error=error,hit=hit,resolved_at=resolved_at,status="RESOLVED")
         changed=True
     return changed
 
@@ -115,7 +139,10 @@ def cycle():
                 "horizon_seconds":300,"friction":FRICTION}
         import hashlib
         config_hash=hashlib.sha256(json.dumps(config,sort_keys=True,separators=(",",":")).encode()).hexdigest()
-        row={"prediction_id":f"live-eurusd-1m-{latest_ts.strftime('%Y%m%dT%H%M%SZ')}","prediction_ts":iso(latest_ts),"target_ts":iso(latest_ts+timedelta(minutes=HORIZON)),
+        issued_at,target_bar_open,target_at=_prediction_times(latest_ts)
+        row={"prediction_id":f"live-eurusd-1m-{latest_ts.strftime('%Y%m%dT%H%M%SZ')}","prediction_ts":iso(issued_at),
+          "target_ts":iso(target_bar_open),"target_at":iso(target_at),
+          "data_contract_version":LIVE_DATA_CONTRACT_VERSION,
           "entry_price":latest_price,"direction":direction,"score":score,"confidence":signal.confidence,"regime":signal.regime,"contradiction":signal.contradiction,
           "predicted_return":predicted_return,"baseline_prediction":baseline_prediction,
           "algorithms":[{"name":c.name,"score":c.score,"predicted_return":c.predicted_return} for c in candidates],"external_context":context,
