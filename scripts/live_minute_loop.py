@@ -112,8 +112,16 @@ def cycle():
     if changed: git_commit()
 
 def main():
-    for i in range(int(os.environ.get("LIVE_CYCLES","5"))):
-        try: cycle()
-        except Exception as exc: print(f"LIVE_CYCLE_ERROR: {type(exc).__name__}: {exc}")
-        if i+1<int(os.environ.get("LIVE_CYCLES","5")): time.sleep(SLEEP_SECONDS)
+    cycles=int(os.environ.get("LIVE_CYCLES","5"))
+    successful=0
+    for i in range(cycles):
+        try:
+            cycle()
+            successful+=1
+        except Exception as exc:
+            print(f"LIVE_CYCLE_ERROR: {type(exc).__name__}: {exc}")
+        if i+1<cycles:
+            time.sleep(SLEEP_SECONDS)
+    if successful==0:
+        raise SystemExit("NO_SUCCESSFUL_LIVE_CYCLES")
 if __name__=="__main__": main()
