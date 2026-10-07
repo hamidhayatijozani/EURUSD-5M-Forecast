@@ -36,7 +36,9 @@ def _price_map(times,prices):
 
 def predict(series,ohlc,state,context):
     if any(len(v)<30 for v in series.values()) or len(ohlc)<30: raise RuntimeError("need at least 30 closed one-minute candles and OHLC")
-    base=combined(series); base_forecast=forecast(series["EURUSD"])
+    base=(combined(series) if all(k in series for k in ("EURUSD","GBPUSD","USDJPY","DXY"))
+          else pst_signal(series["EURUSD"]))
+    base_forecast=forecast(series["EURUSD"])
     algo_score,_,candidates=adaptive_ensemble(series["EURUSD"],ohlc,state)
     adjusted=0.55*base.score+0.45*algo_score+0.18*context["context_score"]+state["bias"]
     if abs(context["power_score"])>=0.60: adjusted*=0.80
@@ -107,14 +109,17 @@ def cycle():
     if state.get("last_prediction")!=iso(latest_ts):
         series={k:v[-60:] for k,v in data.items()}; context=collect_external_context(list(zip(times[-120:],data["EURUSD"][-120:])),now=latest_ts)
         signal,direction,score,predicted_return,candidates,baseline_prediction=predict(series,ohlc_map["EURUSD"][-60:],state,context)
-        config={"engine":"DEEP-OHLC-PATTERNS+ALGORITHM-FACTORY+PST+CROSS-ASSET","horizon_seconds":300,"friction":FRICTION}
+        cross_asset_enabled=all(k in series for k in ("GBPUSD","USDJPY","DXY"))
+        config={"engine":f"DEEP-OHLC-PATTERNS+ALGORITHM-FACTORY+{signal.name}",
+                "cross_asset_enabled":cross_asset_enabled,
+                "horizon_seconds":300,"friction":FRICTION}
         import hashlib
         config_hash=hashlib.sha256(json.dumps(config,sort_keys=True,separators=(",",":")).encode()).hexdigest()
         row={"prediction_id":f"live-eurusd-1m-{latest_ts.strftime('%Y%m%dT%H%M%SZ')}","prediction_ts":iso(latest_ts),"target_ts":iso(latest_ts+timedelta(minutes=HORIZON)),
           "entry_price":latest_price,"direction":direction,"score":score,"confidence":signal.confidence,"regime":signal.regime,"contradiction":signal.contradiction,
           "predicted_return":predicted_return,"baseline_prediction":baseline_prediction,
           "algorithms":[{"name":c.name,"score":c.score,"predicted_return":c.predicted_return} for c in candidates],"external_context":context,
-          "config_hash":config_hash,"status":"PENDING","engine":"DEEP-OHLC-PATTERNS+ALGORITHM-FACTORY+PST+CROSS-ASSET+NEWS+TOP50-24H+DATACENTER-POWER+ONLINE-CALIBRATION"}
+          "config_hash":config_hash,"status":"PENDING","cross_asset_enabled":cross_asset_enabled,"engine":f"DEEP-OHLC-PATTERNS+ALGORITHM-FACTORY+{signal.name}+NEWS+TOP50-24H+DATACENTER-POWER+ONLINE-CALIBRATION"}
         predictions.append(row); state["last_prediction"]=iso(latest_ts); state["context_cycles"]=state.get("context_cycles",0)+1; state["last_external_context"]=context; changed=True; print(json.dumps(row,sort_keys=True))
     state["last_cycle_at"]=iso(datetime.now(timezone.utc)); state["accuracy"]=state["correct"]/state["resolved"] if state["resolved"] else None
     save_predictions(predictions); save_state(state)

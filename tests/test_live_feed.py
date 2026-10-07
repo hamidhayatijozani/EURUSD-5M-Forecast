@@ -33,3 +33,39 @@ def test_asof_alignment_uses_only_prior_quotes(monkeypatch):
     assert aligned["GBPUSD"][0][1] == 1.2
     # At t0+5m, the quote at t0+9m is future data and cannot be selected.
     assert aligned["GBPUSD"][1][1] == 1.2
+
+
+def test_live_feed_uses_eurusd_only_when_auxiliary_feeds_are_unavailable(monkeypatch):
+    import engine.live_feed as lf
+    from datetime import timedelta
+
+    now = datetime(2026, 10, 6, 12, 10, 30, tzinfo=timezone.utc)
+    rows = [
+        (now - timedelta(minutes=10 - i), 1.1 + i * 0.0001)
+        for i in range(10)
+    ]
+    # Construct 40 consecutive closed candles ending one minute before now.
+    rows = [
+        (now.replace(second=0, microsecond=0) - timedelta(minutes=40 - i), 1.1 + i * 0.0001)
+        for i in range(40)
+    ]
+    monkeypatch.setattr(lf, "closed_1m_rows", lambda symbol, when=None: rows if symbol == "EURUSD" else [])
+    data, times = lf.aligned_closed_1m_series(now, limit=120)
+    assert list(data) == ["EURUSD"]
+    assert len(data["EURUSD"]) == 40
+    assert len(times) == 40
+
+
+def test_live_feed_rejects_stale_eurusd_quotes(monkeypatch):
+    import engine.live_feed as lf
+    from datetime import timedelta
+
+    now = datetime(2026, 10, 6, 12, 10, 30, tzinfo=timezone.utc)
+    rows = [
+        (now.replace(second=0, microsecond=0) - timedelta(minutes=8 - i), 1.1 + i * 0.0001)
+        for i in range(5)
+    ]
+    monkeypatch.setattr(lf, "closed_1m_rows", lambda symbol, when=None: rows if symbol == "EURUSD" else [])
+    import pytest
+    with pytest.raises(RuntimeError, match="STALE_EURUSD_FEED"):
+        lf.aligned_closed_1m_series(now, limit=120)
