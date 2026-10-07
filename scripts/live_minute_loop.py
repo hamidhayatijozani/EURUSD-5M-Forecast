@@ -56,15 +56,22 @@ def _prediction_times(latest_bar_open):
     return issued_at,target_bar_open,target_at
 
 
+def _quarantine_legacy_predictions(rows):
+    changed=False
+    for row in rows:
+        if row.get("data_contract_version") != LIVE_DATA_CONTRACT_VERSION and row.get("status")=="PENDING":
+            row.update(status="EXCLUDED_PRE_CONTRACT",
+                       excluded_reason="Prediction predates freshness-checked timing contract")
+            changed=True
+    return changed
+
+
 def settle(rows,times,prices,state,code_commit):
-    changed=False; price_map=_price_map(times,prices)
+    changed=_quarantine_legacy_predictions(rows)
+    price_map=_price_map(times,prices)
     for row in rows:
         # Never backfill pre-contract predictions into the clean evidence ledger.
         if row.get("data_contract_version") != LIVE_DATA_CONTRACT_VERSION:
-            if row.get("status")=="PENDING":
-                row.update(status="EXCLUDED_PRE_CONTRACT",
-                           excluded_reason="Prediction predates freshness-checked timing contract")
-                changed=True
             continue
         if row.get("resolved_at"): continue
         target=row["target_ts"]  # candle-open key for price lookup
