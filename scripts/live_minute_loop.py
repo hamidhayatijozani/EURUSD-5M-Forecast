@@ -71,7 +71,10 @@ def settle(rows,times,prices,state,code_commit):
           "config_hash":row["config_hash"],"claim_registry_hash":registry_hash()},
           actual=actual,baseline_prediction=baseline,
           resolved_at=resolved_at,friction=(FRICTION,0.0,0.0))
-        Ledger(CLAIM_LEDGER_PATH).append(Observation(**obs))
+        ledger=Ledger(CLAIM_LEDGER_PATH)
+        ledger.append(Observation(**obs))
+        if not ledger.verify():
+            raise RuntimeError("LIVE_CLAIM_LEDGER_INTEGRITY_FAILURE")
         changed=True
     return changed
 
@@ -79,7 +82,9 @@ def git_commit():
     if not os.environ.get("GITHUB_ACTIONS"): return
     subprocess.run(["git","config","user.name","github-actions[bot]"],check=False)
     subprocess.run(["git","config","user.email","41898282+github-actions[bot]@users.noreply.github.com"],check=False)
-    subprocess.run(["git","add",str(STATE_PATH),str(PRED_PATH),str(CLAIM_LEDGER_PATH)],check=True)
+    evidence_paths=[p for p in (STATE_PATH,PRED_PATH,CLAIM_LEDGER_PATH) if p.exists()]
+    if not evidence_paths:return
+    subprocess.run(["git","add",*[str(p) for p in evidence_paths]],check=True)
     if subprocess.run(["git","diff","--cached","--quiet"]).returncode==0:return
     subprocess.run(["git","commit","-m","chore: persist live ClaimLab evidence [skip ci]"],check=True)
     # Never report a successful live cycle when its evidence failed to persist.
