@@ -14,6 +14,19 @@ class Ledger:
         return [json.loads(x) for x in self.path.read_text().splitlines() if x.strip()]
 
     def append(self, observation):
+        # Idempotent retry: if a prior process appended but failed before
+        # persisting live state, accept the identical observation once.
+        for row in self._rows():
+            if row.get("prediction_id") != observation.prediction_id:
+                continue
+            body={key:value for key,value in row.items()
+                  if key not in ("previous_hash","ledger_hash")}
+            existing_payload=json.dumps(body,sort_keys=True,separators=(",",":"))
+            if existing_payload != observation.canonical():
+                raise ValueError("conflicting duplicate prediction_id")
+            if not self.verify():
+                raise RuntimeError("CLAIM_LEDGER_INTEGRITY_FAILURE")
+            return row.get("ledger_hash")
         return self.append_many([observation])[0]
 
     def append_many(self, observations):
