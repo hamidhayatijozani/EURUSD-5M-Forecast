@@ -1,4 +1,5 @@
 name: live-minute-research
+# manual execution trigger: freshness-checked live evidence run
 on:
   push:
     branches: [main]
