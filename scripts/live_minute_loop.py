@@ -92,7 +92,16 @@ def git_commit():
 
 def cycle():
     now=datetime.now(timezone.utc); data,times=aligned_closed_1m_series(now); ohlc_map,ohlc_times=aligned_closed_1m_ohlc(now)
-    if ohlc_times[-1]!=times[-1]: raise RuntimeError("OHLC and close information locks are not aligned")
+    # The two HTTP fetches can straddle a minute boundary. Join only timestamps
+    # present in both snapshots; never pair prices from different bars.
+    common=sorted(set(times).intersection(ohlc_times))
+    if len(common)<30:
+        raise RuntimeError("fewer than 30 common close/OHLC timestamps")
+    close_index={ts:i for i,ts in enumerate(times)}
+    ohlc_index={ts:i for i,ts in enumerate(ohlc_times)}
+    data={k:[v[close_index[ts]] for ts in common] for k,v in data.items()}
+    ohlc_map={k:[v[ohlc_index[ts]] for ts in common] for k,v in ohlc_map.items()}
+    times=ohlc_times=common
     latest_ts=times[-1]; latest_price=data["EURUSD"][-1]; state=load_state(); predictions=read_predictions()
     prices= data["EURUSD"]; changed=settle(predictions,times,prices,state,os.environ.get("GITHUB_SHA","LOCAL"))
     if state.get("last_prediction")!=iso(latest_ts):
