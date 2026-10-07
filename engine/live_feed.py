@@ -61,12 +61,23 @@ def _align_asof(master, series, *, max_age, limit):
     return aligned,times
 
 
+def _latest_contiguous(aligned, times, *, step):
+    """Keep only the newest uninterrupted cadence to preserve target horizons."""
+    if not times:
+        return {k:[] for k in aligned},[]
+    start=len(times)-1
+    while start>0 and times[start]-times[start-1]==step:
+        start-=1
+    return {k:v[start:] for k,v in aligned.items()},times[start:]
+
+
 def aligned_closed_series(now=None,limit=300):
     series={k:closed_rows(k,now) for k in SYMBOLS}
     master=series["EURUSD"]
     aligned,times=_align_asof(
         master,series,max_age=timedelta(minutes=15),limit=limit
     )
+    aligned,times=_latest_contiguous(aligned,times,step=timedelta(minutes=5))
     if len(times)<13:
         raise RuntimeError("fewer than 13 fresh past-aligned closed 5m candles")
     return {k:[row[1] for row in aligned[k]] for k in aligned},times
@@ -92,6 +103,7 @@ def aligned_closed_1m_series(now=None,limit=120):
     aligned,times=_align_asof(
         master,series,max_age=timedelta(minutes=10),limit=limit
     )
+    aligned,times=_latest_contiguous(aligned,times,step=timedelta(minutes=1))
     if len(times)<30:
         raise RuntimeError("fewer than 30 fresh past-aligned closed one-minute candles")
     return {k:[row[1] for row in aligned[k]] for k in aligned},times
@@ -104,6 +116,7 @@ def aligned_closed_1m_ohlc(now=None,limit=120):
     aligned,times=_align_asof(
         master,series,max_age=timedelta(minutes=10),limit=limit
     )
+    aligned,times=_latest_contiguous(aligned,times,step=timedelta(minutes=1))
     if len(times)<30:
         raise RuntimeError("fewer than 30 fresh past-aligned closed one-minute OHLC candles")
     return {k:[row[1:] for row in aligned[k]] for k in aligned},times
