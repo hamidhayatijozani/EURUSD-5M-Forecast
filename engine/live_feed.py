@@ -99,20 +99,25 @@ def closed_1m_rows(symbol="EURUSD",now=None):
 
 def aligned_closed_1m_series(now=None,limit=120):
     now=now or datetime.now(timezone.utc)
-    series={}
-    for symbol in SYMBOLS:
-        try:
-            series[symbol]=closed_1m_rows(symbol,now)
-        except Exception:
-            series[symbol]=[]
-    master=series.get("EURUSD",[])
+    # Check primary-feed freshness before spending time fetching auxiliary feeds.
+    try:
+        master=closed_1m_rows("EURUSD",now)
+    except Exception as exc:
+        raise RuntimeError(f"EURUSD_ONE_MINUTE_FEED_UNAVAILABLE:{type(exc).__name__}") from exc
     if not master:
         raise RuntimeError("EURUSD_ONE_MINUTE_FEED_UNAVAILABLE")
     latest_close=master[-1][0]+timedelta(minutes=1)
     lag=(now-latest_close).total_seconds()
     if lag>90:
         raise RuntimeError(f"STALE_EURUSD_FEED:{lag:.1f}s")
-
+    series={"EURUSD":master}
+    for symbol in SYMBOLS:
+        if symbol=="EURUSD":
+            continue
+        try:
+            series[symbol]=closed_1m_rows(symbol,now)
+        except Exception:
+            series[symbol]=[]
     aligned,times=_align_asof(
         master,series,max_age=timedelta(minutes=10),limit=limit
     )

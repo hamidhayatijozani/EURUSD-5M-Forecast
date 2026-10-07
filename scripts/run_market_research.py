@@ -6,6 +6,9 @@ from pathlib import Path
 from engine.experiments import baseline, pst_signal, cross_asset_signal, combined, resolve, summarize
 from engine.live_feed import aligned_closed_series, closed_rows
 
+MIN_EVALUATION_WINDOWS = 50
+MIN_BARS = 13 + MIN_EVALUATION_WINDOWS
+
 
 def _write(payload):
     Path("research/results").mkdir(parents=True, exist_ok=True)
@@ -30,16 +33,31 @@ def run(data_loader=aligned_closed_series, eurusd_loader=closed_rows):
     primary_error = None
     try:
         data, times = data_loader()
-        if len(times) < 14:
-            raise RuntimeError(f"INSUFFICIENT_COMMON_CLOSED_CANDLES:{len(times)}")
+        if len(times) < MIN_BARS:
+            raise RuntimeError(f"INSUFFICIENT_COMMON_CLOSED_CANDLES:{len(times)}; need at least {MIN_BARS}")
     except Exception as exc:
         primary_error = f"{type(exc).__name__}: {exc}"
         # EURUSD-only metrics remain valid for baseline/PST. Do not fabricate
         # cross-asset inputs or pretend the unavailable strategies were tested.
         try:
             rows = _latest_contiguous(eurusd_loader("EURUSD"))
-            if len(rows) < 14:
-                raise RuntimeError(f"INSUFFICIENT_CONTIGUOUS_EURUSD_CANDLES:{len(rows)}")
+            if len(rows) < MIN_BARS:
+                payload = {
+                    "generated_at": generated_at,
+                    "instrument": "EURUSD",
+                    "timeframe": "5m",
+                    "data_source": "Yahoo Finance research adapter",
+                    "research_status": "INSUFFICIENT_DATA" if len(rows) >= 14 else "DATA_UNAVAILABLE",
+                    "metrics_computed": False,
+                    "available_bars": len(rows),
+                    "required_bars": MIN_BARS,
+                    "required_evaluation_windows": MIN_EVALUATION_WINDOWS,
+                    "reason": f"primary={primary_error}; contiguous EURUSD candles={len(rows)}",
+                    "scientific_boundary": "No strategy metrics reported below the minimum sample threshold.",
+                }
+                _write(payload)
+                print(json.dumps(payload, indent=2, sort_keys=True))
+                return payload
             times = [row[0] for row in rows]
             data = {"EURUSD": [float(row[1]) for row in rows]}
             partial = True
@@ -92,6 +110,7 @@ def run(data_loader=aligned_closed_series, eurusd_loader=closed_rows):
         "instrument": "EURUSD",
         "timeframe": "5m",
         "windows": len(times) - 13,
+        "minimum_evaluation_windows": MIN_EVALUATION_WINDOWS,
         "data_source": "Yahoo Finance research adapter" + ("; EURUSD-only fallback" if partial else ""),
         "strategies": results,
         "best_by_average_return": max(available, key=lambda k: available[k]["avg_return"]) if available else None,
