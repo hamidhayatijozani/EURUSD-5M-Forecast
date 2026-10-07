@@ -98,25 +98,52 @@ def closed_1m_rows(symbol="EURUSD",now=None):
             if ts+timedelta(minutes=1)<=now]
 
 def aligned_closed_1m_series(now=None,limit=120):
-    series={k:closed_1m_rows(k,now) for k in SYMBOLS}
-    master=series["EURUSD"]
+    now=now or datetime.now(timezone.utc)
+    series={}
+    for symbol in SYMBOLS:
+        try:
+            series[symbol]=closed_1m_rows(symbol,now)
+        except Exception:
+            series[symbol]=[]
+    master=series.get("EURUSD",[])
+    if not master:
+        raise RuntimeError("EURUSD_ONE_MINUTE_FEED_UNAVAILABLE")
+    latest_close=master[-1][0]+timedelta(minutes=1)
+    lag=(now-latest_close).total_seconds()
+    if lag>90:
+        raise RuntimeError(f"STALE_EURUSD_FEED:{lag:.1f}s")
+
     aligned,times=_align_asof(
         master,series,max_age=timedelta(minutes=10),limit=limit
     )
     aligned,times=_latest_contiguous(aligned,times,step=timedelta(minutes=1))
+    if len(times)>=30 and all(len(aligned.get(k,[]))==len(times) for k in SYMBOLS):
+        return {k:[row[1] for row in aligned[k]] for k in aligned},times
+
+    # Explicit EURUSD-only fallback: no stale or fabricated cross-asset values.
+    start=len(master)-1
+    while start>0 and master[start][0]-master[start-1][0]==timedelta(minutes=1):
+        start-=1
+    master=master[start:][-limit:]
+    times=[row[0] for row in master]
     if len(times)<30:
-        raise RuntimeError("fewer than 30 fresh past-aligned closed one-minute candles")
-    return {k:[row[1] for row in aligned[k]] for k in aligned},times
+        raise RuntimeError(f"INSUFFICIENT_CONTIGUOUS_EURUSD_CANDLES:{len(times)}")
+    return {"EURUSD":[row[1] for row in master]},times
 
 def aligned_closed_1m_ohlc(now=None,limit=120):
     now=now or datetime.now(timezone.utc)
-    series={k:[row for row in fetch_1m_ohlc(k) if row[0]+timedelta(minutes=1)<=now]
-            for k in SYMBOLS}
-    master=series["EURUSD"]
-    aligned,times=_align_asof(
-        master,series,max_age=timedelta(minutes=10),limit=limit
-    )
-    aligned,times=_latest_contiguous(aligned,times,step=timedelta(minutes=1))
-    if len(times)<30:
-        raise RuntimeError("fewer than 30 fresh past-aligned closed one-minute OHLC candles")
-    return {k:[row[1:] for row in aligned[k]] for k in aligned},times
+    rows=[row for row in fetch_1m_ohlc("EURUSD")
+          if row[0]+timedelta(minutes=1)<=now]
+    if not rows:
+        raise RuntimeError("EURUSD_ONE_MINUTE_OHLC_UNAVAILABLE")
+    latest_close=rows[-1][0]+timedelta(minutes=1)
+    lag=(now-latest_close).total_seconds()
+    if lag>90:
+        raise RuntimeError(f"STALE_EURUSD_OHLC_FEED:{lag:.1f}s")
+    start=len(rows)-1
+    while start>0 and rows[start][0]-rows[start-1][0]==timedelta(minutes=1):
+        start-=1
+    rows=rows[start:][-limit:]
+    if len(rows)<30:
+        raise RuntimeError(f"INSUFFICIENT_CONTIGUOUS_EURUSD_OHLC:{len(rows)}")
+    return {"EURUSD":[row[1:] for row in rows]},[row[0] for row in rows]
