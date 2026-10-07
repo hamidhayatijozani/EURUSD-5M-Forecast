@@ -36,3 +36,24 @@ def test_predict_uses_pst_when_cross_asset_series_are_unavailable():
     context = {"context_score": 0.0, "power_score": 0.0}
     result = predict({"EURUSD": closes}, ohlc, state, context)
     assert result[0].name == "EXP-006"
+
+
+def test_claimlab_observation_requires_fresh_evidence():
+    import pytest
+    from claimlab.schema import Observation
+    base = dict(
+        schema_version="claimlab.observation.v1", prediction_id="fresh-1",
+        issued_at="2026-10-07T00:37:00+00:00", target_at="2026-10-07T00:42:00+00:00",
+        resolved_at="2026-10-07T00:42:00+00:00", symbol="EURUSD", horizon_seconds=300,
+        prediction=0.0001, actual=0.0, baseline_prediction=0.0,
+        error_absolute=0.0, baseline_error_absolute=0.0, direction_hit=False,
+        gross_return=0.0, spread_cost=0.00002, slippage_cost=0.0, commission_cost=0.0,
+        friction_adjusted_return=-0.00002, feature_cutoff_at="2026-10-07T00:37:00+00:00",
+        code_commit="test", config_hash="cfg", claim_registry_hash="reg",
+        provider="Yahoo", source_candle_ts="2026-10-07T00:38:00+00:00",
+        observed_at="2026-10-07T00:38:20+00:00", data_age_seconds=20.0,
+        freshness_limit_seconds=90.0, freshness_status="FRESH",
+    )
+    Observation(**base)
+    with pytest.raises(ValueError, match="freshness limit"):
+        Observation(**{**base, "data_age_seconds": 91.0})
