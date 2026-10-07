@@ -65,7 +65,12 @@ def test_live_feed_rejects_stale_eurusd_quotes(monkeypatch):
         (now.replace(second=0, microsecond=0) - timedelta(minutes=8 - i), 1.1 + i * 0.0001)
         for i in range(5)
     ]
-    monkeypatch.setattr(lf, "closed_1m_rows", lambda symbol, when=None: rows if symbol == "EURUSD" else [])
+    calls = []
+    def fake_rows(symbol, when=None):
+        calls.append(symbol)
+        return rows if symbol == "EURUSD" else []
+    monkeypatch.setattr(lf, "closed_1m_rows", fake_rows)
     import pytest
     with pytest.raises(RuntimeError, match="STALE_EURUSD_FEED"):
         lf.aligned_closed_1m_series(now, limit=120)
+    assert calls == ["EURUSD"]
