@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timezone, timedelta
 
-from claimlab.walkforward import parse_csv, walk_forward
+from claimlab.walkforward import parse_csv, walk_forward, regime_robustness
 
 
 def test_parse_csv_normalizes_and_sorts():
@@ -48,3 +48,33 @@ def test_walk_forward_never_uses_target_bar_as_feature():
     assert changed_first["prediction"] == first["prediction"]
     assert changed_first["actual"] != first["actual"]
     assert cfg["baseline"] == "zero_return"
+
+
+
+def test_regime_robustness_uses_past_only_volatility_groups():
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    rows = []
+    close = 1.0
+    for i in range(180):
+        # Deterministic changing returns exercise multiple volatility levels.
+        step = (0.0001 if i % 7 else 0.0015) * (1 if i % 2 else -1)
+        next_close = close * (1.0 + step)
+        ts = start + timedelta(minutes=5 * i)
+        rows.append({
+            "timestamp": ts,
+            "open": close,
+            "high": max(close, next_close) + 0.0002,
+            "low": min(close, next_close) - 0.0002,
+            "close": next_close,
+            "volume": 1.0,
+        })
+        close = next_close
+
+    observations, config = walk_forward(rows, code_commit="test")
+    materialized = [json.loads(o.canonical()) for o in observations]
+    result = regime_robustness(rows, materialized, lookback=config["lookback_bars"], bootstrap_resamples=100)
+    assert result["threshold_lookback_max"] == 500
+    assert result["warmup_observations_excluded"] >= 50
+    assert set(result["metrics"]) == {"LOW", "MEDIUM", "HIGH"}
+    grouped_n = sum(group["n"] for group in result["metrics"].values())
+    assert grouped_n + result["warmup_observations_excluded"] == len(observations)
