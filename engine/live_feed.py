@@ -1,6 +1,7 @@
 """Yahoo research feed adapter with strict closed-candle information lock."""
 import json
 from datetime import datetime,timedelta,timezone
+from urllib.error import HTTPError
 from urllib.request import Request,urlopen
 
 SYMBOLS={"EURUSD":"EURUSD=X","GBPUSD":"GBPUSD=X","USDJPY":"USDJPY=X","DXY":"DX-Y.NYB"}
@@ -103,7 +104,11 @@ def aligned_closed_1m_series(now=None,limit=120):
     try:
         master=closed_1m_rows("EURUSD",now)
     except Exception as exc:
-        raise RuntimeError(f"EURUSD_ONE_MINUTE_FEED_UNAVAILABLE:{type(exc).__name__}") from exc
+        if isinstance(exc, HTTPError):
+            detail=f"HTTPError:status={exc.code}:reason={exc.reason}"
+        else:
+            detail=f"{type(exc).__name__}:{exc}"
+        raise RuntimeError(f"EURUSD_ONE_MINUTE_FEED_UNAVAILABLE:{detail}") from exc
     if not master:
         raise RuntimeError("EURUSD_ONE_MINUTE_FEED_UNAVAILABLE")
     latest_close=master[-1][0]+timedelta(minutes=1)
