@@ -224,6 +224,64 @@ def regime_robustness(
     }
 
 
+
+def cost_sensitivity(
+    observation_rows: Sequence[dict],
+    *,
+    scenarios_pips: Sequence[float] = (0.2, 0.5, 1.0),
+    bootstrap_resamples: int = 2000,
+) -> dict:
+    """Reprice frozen forecasts under predeclared round-trip cost scenarios.
+
+    This never changes a forecast or target return. It recomputes only the
+    trade-direction payoff, cost deduction, and cost-sensitive hit indicator.
+    Cost inputs are scenarios, not observed broker quotes.
+    """
+    results = {}
+    for pips in scenarios_pips:
+        pips = float(pips)
+        if pips < 0:
+            raise ValueError("NEGATIVE_COST_SCENARIO")
+        total_cost = pips * 0.0001
+        scenario_rows = []
+        for source in observation_rows:
+            row = dict(source)
+            prediction = float(row["prediction"])
+            actual = float(row["actual"])
+            direction = 1 if prediction > 0 else -1 if prediction < 0 else 0
+            gross = direction * actual
+            row["gross_return"] = gross
+            row["spread_cost"] = total_cost
+            row["slippage_cost"] = 0.0
+            row["commission_cost"] = 0.0
+            row["friction_adjusted_return"] = gross - total_cost
+            row["direction_hit"] = (
+                (direction == 1 and actual > total_cost)
+                or (direction == -1 and actual < -total_cost)
+            )
+            scenario_rows.append(row)
+        metrics = score(
+            scenario_rows,
+            horizon=5,
+            bootstrap_resamples=bootstrap_resamples,
+            alpha=0.05,
+        )
+        key = f"{pips:.1f}_pip"
+        results[key] = {
+            "total_round_trip_cost": total_cost,
+            "cost_source": "declared_scenario_not_broker_quote",
+            "metrics": metrics,
+        }
+    return {
+        "method": "reprice frozen forecast direction and actual return",
+        "pip_size": 0.0001,
+        "scenarios": results,
+        "scientific_boundary": (
+            "Sensitivity analysis only; not executable broker-cost evidence."
+        ),
+    }
+
+
 def build_capsule(
     observations: Sequence[Observation],
     *,
@@ -245,6 +303,11 @@ def build_capsule(
         rows,
         lookback=int(config.get("lookback_bars", 12)),
         bootstrap_resamples=500,
+    )
+    stats["cost_sensitivity"] = cost_sensitivity(
+        rows,
+        scenarios_pips=(0.2, 0.5, 1.0),
+        bootstrap_resamples=2000,
     )
     registry = load_registry()
     duplicate_count = len(rows) - len({r["prediction_id"] for r in rows})
