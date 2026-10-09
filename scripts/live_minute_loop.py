@@ -18,7 +18,7 @@ CLAIM_LEDGER_PATH=Path("research/claimlab_live_observations.jsonl")
 FRICTION=0.00002
 HORIZON=5
 SLEEP_SECONDS=60
-LIVE_DATA_CONTRACT_VERSION="freshness-90s-v1"
+LIVE_DATA_CONTRACT_VERSION="freshness-90s-v2"
 
 def iso(dt): return dt.astimezone(timezone.utc).isoformat()
 def load_state():
@@ -47,6 +47,12 @@ def predict(series,ohlc,state,context):
     direction="UP" if adjusted>0.12 else "DOWN" if adjusted<-0.12 else "FLAT"
     predicted_return=adjusted*0.0005
     return base,direction,adjusted,predicted_return,candidates,base_forecast.score
+
+def _freshness_age_seconds(source_candle_open, observed_at):
+    """Measure age from candle close, not candle open; OHLC timestamps label opens."""
+    source_candle_close = source_candle_open + timedelta(minutes=1)
+    return max(0.0, (observed_at - source_candle_close).total_seconds())
+
 
 def _prediction_times(latest_bar_open):
     """Translate 1m candle-open labels to exact close/issue/target event times."""
@@ -141,7 +147,7 @@ def cycle():
     # source candle timestamp to the actual observation time.
     source_candle_ts = latest_ts
     observed_at = datetime.now(timezone.utc)
-    data_age_seconds = max(0.0, (observed_at - source_candle_ts).total_seconds())
+    data_age_seconds = _freshness_age_seconds(source_candle_ts, observed_at)
     if data_age_seconds > 90:
         raise RuntimeError(f"STALE_EURUSD_FRESHNESS_EVIDENCE:{data_age_seconds:.1f}s")
     state = load_state()
@@ -163,7 +169,10 @@ def cycle():
           "entry_price":latest_price,"direction":direction,"score":score,"confidence":signal.confidence,"regime":signal.regime,"contradiction":signal.contradiction,
           "predicted_return":predicted_return,"baseline_prediction":baseline_prediction,
           "algorithms":[{"name":c.name,"score":c.score,"predicted_return":c.predicted_return} for c in candidates],"external_context":context,
-          "config_hash":config_hash,"status":"PENDING","cross_asset_enabled":cross_asset_enabled,"engine":f"DEEP-OHLC-PATTERNS+ALGORITHM-FACTORY+{signal.name}+NEWS+TOP50-24H+DATACENTER-POWER+ONLINE-CALIBRATION"}
+          "config_hash":config_hash,"status":"PENDING","cross_asset_enabled":cross_asset_enabled,
+          "provider":"Yahoo","source_candle_ts":iso(source_candle_ts),"observed_at":iso(observed_at),
+          "data_age_seconds":data_age_seconds,"freshness_limit_seconds":90.0,"freshness_status":"FRESH",
+          "engine":f"DEEP-OHLC-PATTERNS+ALGORITHM-FACTORY+{signal.name}+NEWS+TOP50-24H+DATACENTER-POWER+ONLINE-CALIBRATION"}
         predictions.append(row); state["last_prediction"]=iso(latest_ts); state["context_cycles"]=state.get("context_cycles",0)+1; state["last_external_context"]=context; changed=True; print(json.dumps(row,sort_keys=True))
     state["last_cycle_at"]=iso(datetime.now(timezone.utc)); state["accuracy"]=state["correct"]/state["resolved"] if state["resolved"] else None
     save_predictions(predictions); save_state(state)
