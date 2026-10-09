@@ -10,6 +10,7 @@ on:
       - "scripts/claimlab_walkforward.py"
       - "tests/test_walkforward.py"
       - ".github/workflows/claimlab-walkforward.yml"
+      - "research/CONSENSUS_CLAIMLAB_PROTOCOL.md"
 
 permissions:
   contents: read
