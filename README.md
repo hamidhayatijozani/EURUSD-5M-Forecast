@@ -42,7 +42,7 @@ Not claimed:
 The browser dashboard still uses synthetic values for its interactive demo. The ClaimLab ingestion path separately consumes and validates real historical EUR/USD 5-minute OHLCV data. No live-feed claim is made unless a live provider is explicitly configured and its probe succeeds.
 
 ## Research protocol
-The Consensus-informed, pre-registered research protocol is in [research/CONSENSUS_CLAIMLAB_PROTOCOL.md](research/CONSENSUS_CLAIMLAB_PROTOCOL.md). It defines the primary hypotheses, fixed decision criteria, cost sensitivity, evidence requirements, and current data limitations. It does not claim that the historical experiment has passed.
+The Consensus-informed, pre-registered research protocol is in [research/CONSENSUS_CLAIMLAB_PROTOCOL.md](research/CONSENSUS_CLAIMLAB_PROTOCOL.md). The first real historical evaluation result is recorded in [research/results/CONSENSUS_CLAIMLAB_EVALUATION_2026-10-09.md](research/results/CONSENSUS_CLAIMLAB_EVALUATION_2026-10-09.md): the tested 12-bar rolling-mean candidate was killed under the locked performance criteria. This is not a verdict on the separate live ensemble or all feature hypotheses.
 
 ## Run
 Requires Python 3.12+.
