@@ -57,3 +57,13 @@ def test_claimlab_observation_requires_fresh_evidence():
     Observation(**base)
     with pytest.raises(ValueError, match="freshness limit"):
         Observation(**{**base, "data_age_seconds": 91.0})
+
+
+def test_freshness_age_is_measured_from_candle_close_not_open():
+    from scripts.live_minute_loop import _freshness_age_seconds
+
+    candle_open = datetime(2026, 10, 9, 10, 3, tzinfo=timezone.utc)
+    observed_at = candle_open + timedelta(seconds=145)
+    assert _freshness_age_seconds(candle_open, observed_at) == 85.0
+    observed_at = candle_open + timedelta(seconds=149)
+    assert _freshness_age_seconds(candle_open, observed_at) == 89.0
