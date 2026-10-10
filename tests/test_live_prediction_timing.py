@@ -13,7 +13,15 @@ def test_live_prediction_times_match_exact_five_minute_close_horizon():
 
 
 def test_contract_version_is_explicit_for_clean_live_evidence():
-    assert LIVE_DATA_CONTRACT_VERSION == "freshness-90s-v1"
+    assert LIVE_DATA_CONTRACT_VERSION == "freshness-90s-v2"
+
+
+def test_freshness_age_is_measured_from_candle_close_not_open():
+    from scripts.live_minute_loop import _freshness_age_seconds
+
+    candle_open = datetime(2026, 10, 9, 10, 3, tzinfo=timezone.utc)
+    assert _freshness_age_seconds(candle_open, candle_open + timedelta(seconds=145)) == 85.0
+    assert _freshness_age_seconds(candle_open, candle_open + timedelta(seconds=149)) == 89.0
 
 
 def test_legacy_pending_predictions_are_quarantined_not_backfilled():
