@@ -186,7 +186,31 @@ def main():
             cycle()
             successful+=1
         except Exception as exc:
-            print(f"LIVE_CYCLE_ERROR: {type(exc).__name__}: {exc}")
+            # A stale feed during the known FX weekend closure is an expected
+            # no-trade state, not a failed forecasting cycle. Never emit a new
+            # forecast from stale prices.
+            from engine.market_session import expected_weekend_closure
+            reason = f"{type(exc).__name__}: {exc}"
+            if expected_weekend_closure(datetime.now(timezone.utc)) and (
+                "STALE_EURUSD_FEED" in reason
+                or "STALE_EURUSD_FRESHNESS_EVIDENCE" in reason
+                or "INSUFFICIENT_CONTIGUOUS_EURUSD_CANDLES" in reason
+                or "EURUSD_ONE_MINUTE_FEED_UNAVAILABLE" in reason
+            ):
+                state = load_state()
+                state["market_status"] = {
+                    "status": "MARKET_CLOSED_EXPECTED",
+                    "reason": "WEEKEND_FX_SESSION",
+                    "observed_at": iso(datetime.now(timezone.utc)),
+                    "last_valid_prediction": state.get("last_prediction"),
+                    "new_forecast_emitted": False,
+                    "source_error": reason,
+                }
+                save_state(state)
+                print("MARKET_CLOSED_EXPECTED: no new forecast emitted; last valid evidence preserved")
+                successful += 1
+            else:
+                print(f"LIVE_CYCLE_ERROR: {reason}")
         if i+1<cycles:
             time.sleep(SLEEP_SECONDS)
     if successful==0:
