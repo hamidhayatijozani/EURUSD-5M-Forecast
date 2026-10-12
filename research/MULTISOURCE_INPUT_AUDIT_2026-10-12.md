@@ -127,3 +127,32 @@ For head `18f25a0db7de48cc6e6d48c3b0920ebb5eddfff8`:
 - Artifact: https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/38202781564/artifacts/11725138834
 
 These checks establish that the repository tests and offline evaluator execute successfully on this commit. They do not establish live provider connectivity, live-market prediction accuracy, or trading profitability. Workflow logs also contain upstream Node.js 20 deprecation warnings for GitHub Actions; they did not fail either run.
+
+
+## Immutable decision evidence: implementation and exact-head verification
+
+### Implemented on the research branch
+- `engine/forecast_evidence.py` snapshots the aligned candle-close series, OHLC rows, feature cutoff, model component outputs, external context, and config hash at forecast issue time.
+- The snapshot is canonical-JSON SHA-256 hashed. Verification rejects modified content; the prediction row stores both the snapshot and its hash reference.
+- `scripts/live_minute_loop.py` adds the snapshot to each newly emitted prediction and validates snapshot integrity while merging concurrent prediction evidence.
+- `scripts/audit_decision_evidence.py` audits persisted resolved rows. It deliberately does not reconstruct historical snapshots from post-outcome records or current model code.
+- Regression tests cover future/misaligned timestamps, mismatched lengths, tuple-shaped OHLC, hash tampering, and the actual forecast-cycle fixture emitting a verifiable snapshot.
+- The evidence-ablation workflow uploads the existing offline comparison and the decision-evidence audit JSON; audit JSON is also printed to CI logs.
+
+### Current ledger audit result
+On the checked-in ledger observed in GitHub Actions:
+- Resolved historical predictions: **63**
+- Historical rows containing immutable decision snapshots: **0**
+- Rows with invalid snapshot hashes: **0**
+- Audit status: **INSUFFICIENT_DATA**
+
+This is not a data-integrity pass for the historical rows; it means there are no snapshots to validate. Component-level ablation is not valid for those historical forecasts. The new code can create the needed evidence only for forecasts emitted by this code path.
+
+### Exact-head CI
+Commit: `cfe19e7ee1ca0846d1ac0a3d7f4e03e7763eeff1`
+- Python tests: **123 passed in 1.40s** — https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/38203553355
+- Offline ablation plus decision-evidence audit: **success** — https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/38203553350
+- Machine-readable artifact SHA-256: `19eb0c74595163e59e5482d63804d545360e5a533c91ce79c0f96e8eb2239bd1`
+
+### Remaining release gate
+The PR remains draft and is not merged. The live-minute workflow runs from `main` on a five-minute schedule and writes evidence to the main branch. Dispatching the feature branch's live workflow would be unsafe because its persistence code can push its checked-out HEAD to `main`; therefore no live run was dispatched from this draft branch. The next valid proof is: merge through the repository's intended review path, then inspect a scheduled run on the resulting main SHA and verify that a newly issued forecast persists a valid snapshot. Provider connectivity, predictive value, and profitability remain unproven.
