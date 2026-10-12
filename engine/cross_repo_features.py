@@ -56,3 +56,46 @@ def cross_repo_features(closes: Sequence[float], *, window: int = 12) -> dict[st
     if any(not isfinite(value) for value in result.values()):
         raise ValueError("computed features must be finite")
     return result
+
+
+def cross_repo_feature_snapshot(
+    closes: Sequence[float],
+    *,
+    issued_at: str,
+    source_timeframe: str = "1m",
+    window: int = 12,
+) -> dict:
+    """Create metadata-only feature evidence; never raises for bad market input.
+
+    This wrapper is intended for side-channel capture beside an existing
+    forecast. An unavailable snapshot must not suppress or alter that forecast.
+    """
+    if not isinstance(issued_at, str) or not issued_at.strip():
+        return {
+            "schema": "cross_repo_feature_snapshot.v1",
+            "status": "UNAVAILABLE",
+            "reason": "INVALID_ISSUED_AT",
+        }
+    if not isinstance(source_timeframe, str) or not source_timeframe.strip():
+        return {
+            "schema": "cross_repo_feature_snapshot.v1",
+            "status": "UNAVAILABLE",
+            "reason": "INVALID_SOURCE_TIMEFRAME",
+        }
+    try:
+        values = cross_repo_features(closes, window=window)
+    except (TypeError, ValueError, OverflowError):
+        return {
+            "schema": "cross_repo_feature_snapshot.v1",
+            "status": "UNAVAILABLE",
+            "reason": "INVALID_OR_DEGENERATE_INPUT",
+        }
+    return {
+        "schema": "cross_repo_feature_snapshot.v1",
+        "status": "READY",
+        "feature_version": "cross_repo_features.v1",
+        "source_timeframe": source_timeframe,
+        "feature_cutoff_at": issued_at,
+        "window_bars": window,
+        "values": values,
+    }
