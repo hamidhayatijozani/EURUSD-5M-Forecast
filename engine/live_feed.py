@@ -111,6 +111,13 @@ def aligned_closed_1m_series(now=None,limit=120):
         raise RuntimeError(f"EURUSD_ONE_MINUTE_FEED_UNAVAILABLE:{detail}") from exc
     if not master:
         raise RuntimeError("EURUSD_ONE_MINUTE_FEED_UNAVAILABLE")
+    master_total=len(master)
+    master_first=master[0][0]
+    master_last=master[-1][0]
+    intervals=[(master[i][0]-master[i-1][0]).total_seconds() for i in range(1,len(master))]
+    median_interval=median(intervals) if intervals else None
+    non_minute_gaps=sum(delta!=60.0 for delta in intervals)
+    largest_gap=max(intervals) if intervals else None
     latest_close=master[-1][0]+timedelta(minutes=1)
     lag=(now-latest_close).total_seconds()
     if lag>90:
@@ -139,7 +146,14 @@ def aligned_closed_1m_series(now=None,limit=120):
     master=master[start:][-limit:]
     times=[row[0] for row in master]
     if len(times)<30:
-        raise RuntimeError(f"INSUFFICIENT_CONTIGUOUS_EURUSD_CANDLES:{len(times)}")
+        aux_counts={symbol:len(rows) for symbol,rows in series.items() if symbol!="EURUSD"}
+        raise RuntimeError(
+            "INSUFFICIENT_CONTIGUOUS_EURUSD_CANDLES:"
+            f"{len(times)}:master_rows={master_total}:first={master_first.isoformat()}:"
+            f"last={master_last.isoformat()}:latest_lag_seconds={lag:.1f}:"
+            f"median_interval_seconds={median_interval}:non_minute_gaps={non_minute_gaps}:"
+            f"largest_gap_seconds={largest_gap}:auxiliary_rows={aux_counts}"
+        )
     return {"EURUSD":[row[1] for row in master]},times
 
 def aligned_closed_1m_ohlc(now=None,limit=120):
