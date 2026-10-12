@@ -53,6 +53,7 @@ def evaluate(rows):
             "hit_rate_all_rows": original_hits / n if n else None,
             "hit_rate_resolvable_rows": original_hits / eligible if eligible else None,
             "wilson_95_naive_all_rows": wilson_interval(original_hits, n),
+            "wilson_95_naive_resolvable_rows": wilson_interval(original_hits, eligible),
             "mean_net_return_per_row": original_net / n if n else None,
         },
         "inverse": {
@@ -60,6 +61,7 @@ def evaluate(rows):
             "hit_rate_all_rows": inverse_hits / n if n else None,
             "hit_rate_resolvable_rows": inverse_hits / eligible if eligible else None,
             "wilson_95_naive_all_rows": wilson_interval(inverse_hits, n),
+            "wilson_95_naive_resolvable_rows": wilson_interval(inverse_hits, eligible),
             "mean_net_return_per_row": inverse_net / n if n else None,
         },
         "limitations": [
