@@ -1,13 +1,14 @@
 """Every-minute real-market 5-minute forecasting with exact-target resolution and ClaimLab evidence."""
 import hashlib, json, os, subprocess, time
 from datetime import datetime, timedelta, timezone
+from urllib.error import HTTPError, URLError
 from pathlib import Path
 from statistics import pstdev
 from engine.algorithm_factory import adaptive_ensemble, update_algorithm_stats, Candidate
 from engine.experiments import combined, pst_signal
 from engine.context import collect_external_context
 from engine.forecast import forecast
-from engine.live_feed import aligned_closed_1m_series, aligned_closed_1m_ohlc
+from engine.live_feed import aligned_closed_1m_series, aligned_closed_1m_ohlc, closed_1m_rows
 from claimlab.ledger import Ledger
 from claimlab.registry import registry_hash
 from claimlab.resolver import resolve
@@ -462,32 +463,71 @@ def git_commit():
     _push_commit_with_rebase()
 
 def cycle():
-    now=datetime.now(timezone.utc); data,times=aligned_closed_1m_series(now); ohlc_map,ohlc_times=aligned_closed_1m_ohlc(now)
-    # The two HTTP fetches can straddle a minute boundary. Join only timestamps
-    # present in both snapshots; never pair prices from different bars.
-    common=sorted(set(times).intersection(ohlc_times))
-    if len(common)<30:
-        raise RuntimeError("fewer than 30 common close/OHLC timestamps")
+    now=datetime.now(timezone.utc)
+    code_commit=os.environ.get("GITHUB_SHA","LOCAL")
+    state=load_state()
+    predictions=read_predictions()
+    pre_changed=False
+
+    # Resolve due forecasts from any closed EURUSD rows before requiring a
+    # long contiguous feature window. A feature-data gap must not erase valid
+    # target-price evidence for predictions already issued.
+    try:
+        raw_rows=closed_1m_rows("EURUSD",now)
+    except (HTTPError,URLError,TimeoutError,OSError,RuntimeError) as exc:
+        raw_rows=[]
+        print(f"PENDING_SETTLEMENT_FEED_WARNING: {type(exc).__name__}: {exc}")
+    if raw_rows:
+        pre_changed=settle(
+            predictions,[row[0] for row in raw_rows],[row[1] for row in raw_rows],
+            state,code_commit)
+        if pre_changed:
+            state["last_cycle_at"]=iso(datetime.now(timezone.utc))
+            save_predictions(predictions); save_state(state); git_commit()
+            state=load_state(); predictions=read_predictions()
+
+    try:
+        data,times=aligned_closed_1m_series(now)
+        ohlc_map,ohlc_times=aligned_closed_1m_ohlc(now)
+        # The two HTTP fetches can straddle a minute boundary. Join only
+        # timestamps present in both snapshots; never pair different bars.
+        common=sorted(set(times).intersection(ohlc_times))
+        if len(common)<30:
+            raise RuntimeError(
+                f"INSUFFICIENT_COMMON_CLOSE_OHLC_TIMESTAMPS:{len(common)}:"
+                f"close_rows={len(times)}:ohlc_rows={len(ohlc_times)}")
+    except (RuntimeError,HTTPError,URLError,TimeoutError,OSError) as exc:
+        print(
+            f"LIVE_CYCLE_HOLD: {type(exc).__name__}: {exc}; "
+            "pending_settlement_attempted=true; new_forecast_emitted=false"
+        )
+        return "HOLD"
+
     close_index={ts:i for i,ts in enumerate(times)}
     ohlc_index={ts:i for i,ts in enumerate(ohlc_times)}
     data={k:[v[close_index[ts]] for ts in common] for k,v in data.items()}
     ohlc_map={k:[v[ohlc_index[ts]] for ts in common] for k,v in ohlc_map.items()}
     times=ohlc_times=common
-    latest_ts = times[-1]
-    latest_price = data["EURUSD"][-1]
-    # Yahoo timestamps label candle opens; the freshness contract measures
-    # elapsed time since that candle closed, not since it opened.
-    source_candle_ts = latest_ts
-    observed_at = datetime.now(timezone.utc)
-    data_age_seconds = _freshness_age_seconds(source_candle_ts, observed_at)
-    if data_age_seconds > 90:
-        raise RuntimeError(f"STALE_EURUSD_FRESHNESS_EVIDENCE:{data_age_seconds:.1f}s")
-    state = load_state()
-    predictions = read_predictions()
-    prices= data["EURUSD"]; changed=settle(predictions,times,prices,state,os.environ.get("GITHUB_SHA","LOCAL"))
+    latest_ts=times[-1]
+    latest_price=data["EURUSD"][-1]
+    source_candle_ts=latest_ts
+    observed_at=datetime.now(timezone.utc)
+    data_age_seconds=_freshness_age_seconds(source_candle_ts,observed_at)
+    if data_age_seconds>90:
+        print(
+            f"LIVE_CYCLE_HOLD: STALE_EURUSD_FRESHNESS_EVIDENCE:{data_age_seconds:.1f}s; "
+            "pending_settlement_attempted=true; new_forecast_emitted=false"
+        )
+        return "HOLD"
+
+    prices=data["EURUSD"]
+    changed=settle(predictions,times,prices,state,code_commit) or pre_changed
+    issued=False
     if state.get("last_prediction")!=iso(latest_ts):
-        series={k:v[-60:] for k,v in data.items()}; context=collect_external_context(list(zip(times[-120:],data["EURUSD"][-120:])),now=latest_ts)
-        signal,direction,score,predicted_return,candidates,baseline_prediction=predict(series,ohlc_map["EURUSD"][-60:],state,context)
+        series={k:v[-60:] for k,v in data.items()}
+        context=collect_external_context(list(zip(times[-120:],data["EURUSD"][-120:])),now=latest_ts)
+        signal,direction,score,predicted_return,candidates,baseline_prediction=predict(
+            series,ohlc_map["EURUSD"][-60:],state,context)
         cross_asset_enabled=all(k in series for k in ("GBPUSD","USDJPY","DXY"))
         cross_candidates,cross_status=cross_asset_candidates(series)
         config={"engine":f"DEEP-OHLC-PATTERNS+ALGORITHM-FACTORY+{signal.name}",
@@ -508,18 +548,25 @@ def cycle():
           "provider":"Yahoo","source_candle_ts":iso(source_candle_ts),"observed_at":iso(observed_at),
           "data_age_seconds":data_age_seconds,"freshness_limit_seconds":90.0,"freshness_status":"FRESH",
           "engine":f"DEEP-OHLC-PATTERNS+ALGORITHM-FACTORY+{signal.name}+NEWS+TOP50-24H+DATACENTER-POWER+ONLINE-CALIBRATION"}
-        predictions.append(row); state["last_prediction"]=iso(latest_ts); state["context_cycles"]=state.get("context_cycles",0)+1; state["last_external_context"]=context; changed=True; print(json.dumps(row,sort_keys=True))
+        predictions.append(row); state["last_prediction"]=iso(latest_ts); state["context_cycles"]=state.get("context_cycles",0)+1; state["last_external_context"]=context; changed=True; issued=True; print(json.dumps(row,sort_keys=True))
     state["last_cycle_at"]=iso(datetime.now(timezone.utc)); state["accuracy"]=state["correct"]/state["resolved"] if state["resolved"] else None
     save_predictions(predictions); save_state(state)
     if changed: git_commit()
+    return "FORECAST" if issued else "NO_NEW_FORECAST"
 
 def main():
     cycles=int(os.environ.get("LIVE_CYCLES","5"))
     successful=0
+    forecasts=0
+    holds=0
+    no_new_forecast=0
     failures=[]
     for i in range(cycles):
         try:
-            cycle()
+            outcome=cycle()
+            if outcome=="FORECAST": forecasts+=1
+            elif outcome=="HOLD": holds+=1
+            else: no_new_forecast+=1
             successful+=1
         except Exception as exc:
             # A stale feed during the known FX weekend closure is an expected
@@ -545,11 +592,13 @@ def main():
                 save_state(state)
                 print("MARKET_CLOSED_EXPECTED: no new forecast emitted; last valid evidence preserved")
                 successful += 1
+                holds += 1
             else:
                 failures.append(reason)
                 print(f"LIVE_CYCLE_ERROR: {reason}")
         if i+1<cycles:
             time.sleep(SLEEP_SECONDS)
+    print(f"LIVE_CYCLE_SUMMARY: cycles={cycles} forecasts={forecasts} holds={holds} no_new_forecast={no_new_forecast} errors={len(failures)}")
     if failures:
         raise SystemExit("LIVE_CYCLE_ERRORS: " + " | ".join(failures[-5:]))
     if successful==0:
