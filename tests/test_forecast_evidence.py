@@ -14,7 +14,9 @@ def fixture():
         ohlc={"open": [1.0, 1.1, 1.2], "high": [1.2, 1.3, 1.4],
               "low": [0.9, 1.0, 1.1], "close": [1.1, 1.2, 1.3]},
         source_candle_ts=times[-1],
+        feature_cutoff_at=times[-1],
         issued_at=times[-1] + timedelta(minutes=1),
+        target_ts=times[-1] + timedelta(minutes=5),
         config_hash="cfg-sha",
         model_components={"ensemble_score": 0.2, "algorithms": [{"name": "MOM_2", "score": 0.1}]},
         external_context={"directional_sources_available": 0, "power_score": 0.0},
@@ -51,6 +53,20 @@ def test_rejects_issue_time_before_candle_close():
     args = fixture()
     args["issued_at"] = args["source_candle_ts"] + timedelta(seconds=20)
     with pytest.raises(ValueError, match="ISSUED_BEFORE"):
+        build_decision_evidence(**args)
+
+
+def test_rejects_cutoff_equal_to_issue_time():
+    args = fixture()
+    args["feature_cutoff_at"] = args["issued_at"]
+    with pytest.raises(ValueError, match="TEMPORAL_CONTRACT"):
+        build_decision_evidence(**args)
+
+
+def test_rejects_issue_at_or_after_target():
+    args = fixture()
+    args["issued_at"] = args["target_ts"]
+    with pytest.raises(ValueError, match="TEMPORAL_CONTRACT"):
         build_decision_evidence(**args)
 
 
