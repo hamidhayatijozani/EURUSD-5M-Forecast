@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -37,7 +38,7 @@ def _observation(prediction_id, issued_minute):
         claim_registry_hash="registry",
         provider="Yahoo",
         source_candle_ts="2026-10-12T11:59:00+00:00",
-        observed_at="2026-10-12T12:00:30+00:00",
+        observed_at=(datetime.fromisoformat(issued) + timedelta(seconds=30)).isoformat(),
         data_age_seconds=30.0,
         freshness_limit_seconds=90.0,
         freshness_status="FRESH",
