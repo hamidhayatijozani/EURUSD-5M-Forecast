@@ -186,9 +186,13 @@ class FreshnessGateTests(unittest.TestCase):
         times = [target_open - timedelta(minutes=1), target_open]
         prices = [row["entry_price"], row["entry_price"] * 1.0003]
         state = {"bias": 0.0, "resolved": 0, "correct": 0, "errors": [], "algorithms": {}}
+        from claimlab.live_evidence_bridge import persist_issue
+
         with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(loop, "PRED_PATH", Path(tmp) / "predictions.jsonl"), \
                 mock.patch.object(loop, "CLAIM_LEDGER_PATH", Path(tmp) / "ledger.jsonl"), \
                 mock.patch.object(loop, "CROSS_ASSET_LEDGER_PATH", Path(tmp) / "cross_asset.jsonl"):
+            persist_issue(row, "test-sha", evidence_dir=Path(tmp))
             self.assertTrue(loop.settle([row], times, prices, state, "test-sha"))
             ledger = Ledger(loop.CLAIM_LEDGER_PATH)
             self.assertTrue(ledger.verify())

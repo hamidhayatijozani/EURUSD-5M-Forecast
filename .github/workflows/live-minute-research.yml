@@ -51,6 +51,9 @@ jobs:
             research/live_predictions.jsonl
             research/claimlab_live_observations.jsonl
             research/cross_asset_live_observations.jsonl
+            research/live_decision_evidence.jsonl
+            research/live_decision_settlements.jsonl
+            research/live_evidence.db
             evidence/cross-asset-forward-evaluation.json
             research/LIVE_CROSS_ASSET_PREREGISTRATION_V2.json
             evidence/cross-asset-forward-evaluation-v2.json
