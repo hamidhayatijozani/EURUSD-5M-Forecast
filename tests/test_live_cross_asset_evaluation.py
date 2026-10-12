@@ -33,3 +33,22 @@ def test_forward_evaluation_excludes_pre_activation_rows(tmp_path, monkeypatch):
     assert result["execution"]["eligible_fresh_rows"] == 0
     assert result["metrics"]["LIVE1M_DOLLAR_CONSENSUS_3M"]["resolved_observations"] == 0
     assert result["verdict"] == "INSUFFICIENT_DATA"
+
+
+def test_no_trade_control_alone_does_not_kill_unobserved_candidates(tmp_path, monkeypatch):
+    prereg=tmp_path/"registration.json"
+    prereg.write_text(json.dumps({
+        "candidate_ids":["LIVE1M_NO_TRADE","LIVE1M_DOLLAR_CONSENSUS_3M"],
+        "activation_time":"2026-10-12T01:23:59Z"
+    }))
+    monkeypatch.setattr("scripts.evaluate_live_cross_asset.REGISTRATION",prereg)
+    rows=[{
+        "contract_version":CROSS_ASSET_CONTRACT_VERSION,
+        "freshness_status":"FRESH",
+        "issued_at":"2026-10-12T01:24:00+00:00",
+        "candidate_id":"LIVE1M_NO_TRADE","position":0,"actual_return":0.0
+    } for _ in range(1000)]
+    result=evaluate(rows,code_commit="test")
+    assert result["metrics"]["LIVE1M_NO_TRADE"]["resolved_observations"] == 1000
+    assert result["metrics"]["LIVE1M_DOLLAR_CONSENSUS_3M"]["resolved_observations"] == 0
+    assert result["verdict"] == "INSUFFICIENT_DATA"
