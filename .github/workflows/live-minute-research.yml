@@ -1,5 +1,5 @@
 name: live-minute-research
-# manual execution trigger: freshness-checked live evidence run
+# Manual execution supports a freshness-checked live evidence run.
 on:
   push:
     branches: [main]
@@ -27,11 +27,20 @@ jobs:
       - name: live minute forecast loop
         env:
           ELECTRICITY_MAPS_API_KEY: ${{ secrets.ELECTRICITY_MAPS_API_KEY }}
-        run: PYTHONPATH=. LIVE_CYCLES=5 python scripts/live_minute_loop.py
-      - uses: actions/upload-artifact@v4
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p research
+          PYTHONPATH=. LIVE_CYCLES=5 python scripts/live_minute_loop.py 2>&1 | tee research/live_minute_run.log
+      - name: preserve live diagnostics even when forecasting fails
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: live-minute-${{ github.run_number }}
+          name: live-minute-diagnostics-${{ github.run_number }}
+          if-no-files-found: warn
+          retention-days: 14
           path: |
+            research/live_minute_run.log
             research/live_state.json
             research/live_predictions.jsonl
             research/claimlab_live_observations.jsonl
