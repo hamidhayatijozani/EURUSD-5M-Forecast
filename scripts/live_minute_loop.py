@@ -189,6 +189,8 @@ def append_cross_asset_observations(prediction,actual,resolved_at,code_commit):
         with CROSS_ASSET_LEDGER_PATH.open("a",encoding="utf-8") as handle:
             handle.write(json.dumps(payload,sort_keys=True)+chr(10))
         rows.append(payload); known.add(observation_id); previous=record_hash; appended+=1
+    if appended:
+        _read_cross_asset_ledger()
     return appended
 
 
