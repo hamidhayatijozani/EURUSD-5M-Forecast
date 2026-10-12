@@ -99,3 +99,19 @@ GitHub Actions evidence:
 The evaluator exposes a data-contract limitation: per-forecast PST/base component score, algorithm ensemble score/weights at issue time, and raw timestamped context features are not all persisted independently. The next code change should extend forecast evidence to record these components without recomputing them after the outcome is known. Then run common-cohort leave-one-source-out ablations on a later untouched window.
 
 No model weights should be tuned against this same evaluation window. This audit changes no live strategy and authorizes no live trading.
+
+
+## Grid-load proxy proposal (research-only)
+
+The user-proposed electricity proxy has been translated into a leakage-safe research contract and a pure feature transform:
+- `engine/grid_power_proxy.py` rejects future-dated, stale, invalid, and mixed-region/unit observations; it computes a bounded anomaly against prior observations only.
+- `tests/test_grid_power_proxy.py` covers lookahead exclusion, freshness, insufficient history, and region isolation.
+- `research/GRID_POWER_PROXY_EXPERIMENT.md` defines source limitations and a preregistered test of future absolute return/realized volatility before any directional claim.
+
+Important source distinctions:
+- NESO national demand is not London data-centre consumption.
+- ENTSO-E series describe grid/system data, not Frankfurt server load; API access requires token setup.
+- EIA electricity data are regional/system proxies, not direct cloud-provider power usage; API registration is required.
+- OANDA candle volume is a broker/feed-specific count of prices created in the interval, not total global FX traded volume.
+
+This commit adds **no provider connector**, stores no new live data, changes no live forecast path, and does not establish predictive value. Data ingestion and out-of-sample validation remain pending.
