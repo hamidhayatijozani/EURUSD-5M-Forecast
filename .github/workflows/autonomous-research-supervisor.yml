@@ -37,7 +37,7 @@ jobs:
       - name: persist supervisor evidence
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add scripts/autonomous_supervisor.py research/autonomous_supervisor.log
           git diff --cached --quiet || git commit -m "chore: persist autonomous supervisor evidence"
           git push
