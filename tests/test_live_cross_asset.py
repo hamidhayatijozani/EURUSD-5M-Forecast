@@ -1,9 +1,11 @@
 from scripts.live_minute_loop import (
     CROSS_ASSET_CANDIDATES,
     CROSS_ASSET_LEDGER_PATH,
+    CROSS_ASSET_CONTRACT_VERSION_V2,
     _read_cross_asset_ledger,
     append_cross_asset_observations,
     cross_asset_candidates,
+    cross_asset_candidates_v2,
 )
 
 
@@ -52,19 +54,27 @@ def test_live_cross_asset_ledger_is_hash_chained_and_idempotent(tmp_path, monkey
             "LIVE1M_DOLLAR_CONSENSUS_3M": 1,
             "LIVE1M_COMPOSITE_Z15": None,
         },
+        "cross_asset_status_v2": "READY",
+        "cross_asset_available_symbols": ["GBPUSD", "USDJPY"],
+        "cross_asset_candidates_v2": {
+            "LIVE1M2_NO_TRADE": 0,
+            "LIVE1M2_USDJPY_INVERSE_3M": -1,
+        },
     }
     count = append_cross_asset_observations(
         prediction, 0.0001, "2026-10-12T12:06:00+00:00", "abc123"
     )
-    assert count == 2
+    assert count == 4
     assert append_cross_asset_observations(
         prediction, 0.0001, "2026-10-12T12:06:00+00:00", "abc123"
     ) == 0
     rows, last_hash = _read_cross_asset_ledger()
-    assert len(rows) == 2
+    assert len(rows) == 4
     assert rows[0]["candidate_id"] == "LIVE1M_NO_TRADE"
     assert rows[0]["net_return"] == 0.0
     assert rows[1]["net_return"] == 0.00008
+    assert rows[-1]["contract_version"] == CROSS_ASSET_CONTRACT_VERSION_V2
+    assert rows[-1]["candidate_id"] == "LIVE1M2_USDJPY_INVERSE_3M"
     assert rows[-1]["record_hash"] == last_hash
 
 

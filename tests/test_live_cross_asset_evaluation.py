@@ -59,3 +59,27 @@ def test_checked_in_forward_preregistration_is_valid_and_locked():
     prereg=json.loads(Path("research/LIVE_CROSS_ASSET_PREREGISTRATION.json").read_text(encoding="utf-8"))
     assert prereg["activation_time"] == "2026-10-12T01:23:59Z"
     assert prereg["candidate_ids"][0] == "LIVE1M_NO_TRADE"
+
+
+def test_evaluator_can_filter_second_candidate_contract(tmp_path):
+    from scripts.live_minute_loop import CROSS_ASSET_CONTRACT_VERSION_V2
+    prereg=tmp_path/"registration-v2.json"
+    prereg.write_text(json.dumps({
+        "candidate_ids":["LIVE1M2_NO_TRADE","LIVE1M2_USDJPY_INVERSE_3M"],
+        "activation_time":"2026-10-12T01:50:00Z"
+    }))
+    row={
+        "contract_version":CROSS_ASSET_CONTRACT_VERSION_V2,
+        "freshness_status":"FRESH",
+        "issued_at":"2026-10-12T01:51:00+00:00",
+        "candidate_id":"LIVE1M2_USDJPY_INVERSE_3M",
+        "position":1,"actual_return":0.0003,"net_return":0.00028
+    }
+    result=evaluate(
+        [row],code_commit="test",registration_path=prereg,
+        contract_version=CROSS_ASSET_CONTRACT_VERSION_V2,
+        no_trade_candidate="LIVE1M2_NO_TRADE"
+    )
+    assert result["execution"]["contract_version"] == CROSS_ASSET_CONTRACT_VERSION_V2
+    assert result["metrics"]["LIVE1M2_USDJPY_INVERSE_3M"]["resolved_observations"] == 1
+    assert result["verdict"] == "INSUFFICIENT_DATA"
