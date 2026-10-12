@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 YAHOO_SYMBOLS = {
     "EURUSD": "EURUSD=X",
     "GBPUSD": "GBPUSD=X",
-    "USDJPY": "JPY=X",
+    "USDJPY": "USDJPY=X",
     "DXY": "DX-Y.NYB",
 }
 OANDA_SYMBOLS = {"EURUSD": "EUR_USD", "GBPUSD": "GBP_USD", "USDJPY": "USD_JPY"}
@@ -99,7 +99,7 @@ def _fetch_oanda(symbol, interval):
     instrument = OANDA_SYMBOLS.get(symbol)
     if not token or not instrument:
         raise RuntimeError("OANDA_NOT_CONFIGURED_FOR_SYMBOL")
-    granularity = {"1m": "M1", "5m": "M5"}.get(interval)
+    granularity = {"1min": "M1", "5min": "M5"}.get(interval)
     if not granularity:
         raise ValueError("unsupported OANDA interval")
     base = os.environ.get("OANDA_API_BASE", "").strip()
