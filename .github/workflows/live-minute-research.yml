@@ -35,6 +35,9 @@ jobs:
       - name: evaluate forward cross-asset paper ledger
         if: always()
         run: PYTHONPATH=. python scripts/evaluate_live_cross_asset.py
+      - name: evaluate forward GBPUSD-USDJPY paper family
+        if: always()
+        run: PYTHONPATH=. python scripts/evaluate_live_cross_asset_v2.py
       - name: preserve live diagnostics even when forecasting fails
         if: always()
         uses: actions/upload-artifact@v4
@@ -49,3 +52,5 @@ jobs:
             research/claimlab_live_observations.jsonl
             research/cross_asset_live_observations.jsonl
             evidence/cross-asset-forward-evaluation.json
+            research/LIVE_CROSS_ASSET_PREREGISTRATION_V2.json
+            evidence/cross-asset-forward-evaluation-v2.json
