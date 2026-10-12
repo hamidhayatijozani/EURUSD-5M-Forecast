@@ -14,11 +14,13 @@ RESAMPLES=2000
 BLOCK_SIZE=5
 
 
-def evaluate(rows,code_commit="LOCAL"):
-    registration=json.loads(REGISTRATION.read_text(encoding="utf-8"))
+def evaluate(rows,code_commit="LOCAL",registration_path=None,contract_version=None,no_trade_candidate="LIVE1M_NO_TRADE"):
+    registration_path=registration_path or REGISTRATION
+    contract_version=contract_version or CROSS_ASSET_CONTRACT_VERSION
+    registration=json.loads(Path(registration_path).read_text(encoding="utf-8"))
     total_chain_rows=len(rows)
     activation=datetime.fromisoformat(registration["activation_time"].replace("Z","+00:00"))
-    rows=[r for r in rows if r.get("contract_version")==CROSS_ASSET_CONTRACT_VERSION
+    rows=[r for r in rows if r.get("contract_version")==contract_version
           and r.get("freshness_status")=="FRESH"
           and datetime.fromisoformat(r["issued_at"].replace("Z","+00:00"))>=activation]
     candidates=registration["candidate_ids"]
@@ -64,21 +66,21 @@ def evaluate(rows,code_commit="LOCAL"):
         metric=metrics[candidate]
         metric["bh_reject_at_0_2_pip"]=reject
         metric["survives_gate"]=bool(
-            candidate!="LIVE1M_NO_TRADE"
+            candidate!=no_trade_candidate
             and metric["resolved_observations"]>=MIN_RESOLVED
             and metric["trades"]>=MIN_TRADES
             and metric["ci_lower_net_mean"] is not None
             and metric["ci_lower_net_mean"]>0.0
             and reject)
     survivors=[c for c in candidates if metrics[c]["survives_gate"]]
-    enough=any(metrics[c]["resolved_observations"]>=MIN_RESOLVED for c in candidates if c!="LIVE1M_NO_TRADE")
+    enough=any(metrics[c]["resolved_observations"]>=MIN_RESOLVED for c in candidates if c!=no_trade_candidate)
     return {
         "schema":"claimlab.live_cross_asset_evaluation.v1",
         "status":"COMPUTED_FORWARD_PAPER_EVIDENCE" if enough else "INSUFFICIENT_DATA",
         "verdict":"SURVIVES" if survivors else ("KILLED" if enough else "INSUFFICIENT_DATA"),
         "surviving_candidates":survivors,
         "registration":registration,
-        "execution":{"code_commit":code_commit,"contract_version":CROSS_ASSET_CONTRACT_VERSION,
+        "execution":{"code_commit":code_commit,"contract_version":contract_version,
                      "rows_in_hash_chain":total_chain_rows,"eligible_fresh_rows":len(rows),"minimum_resolved":MIN_RESOLVED,
                      "minimum_trades":MIN_TRADES,"primary_cost":COSTS[0],
                      "cost_sensitivity":list(COSTS),"block_size":BLOCK_SIZE,
