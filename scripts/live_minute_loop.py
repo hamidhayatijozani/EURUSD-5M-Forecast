@@ -379,6 +379,11 @@ def _merge_prediction_texts(local_text,remote_text):
     core_keys=("prediction_id","prediction_ts","target_at","prediction",
                "baseline_prediction","source_candle_ts","feature_cutoff_at","config_hash")
     for row in _parse_jsonl_text(remote_text)+_parse_jsonl_text(local_text):
+        evidence=row.get("decision_evidence")
+        if evidence is not None and not verify_decision_evidence(evidence):
+            raise RuntimeError(f"LIVE_DECISION_EVIDENCE_HASH_INVALID:{row.get('prediction_id','UNKNOWN')}")
+        if evidence is not None and row.get("decision_evidence_sha256") != evidence.get("snapshot_sha256"):
+            raise RuntimeError(f"LIVE_DECISION_EVIDENCE_HASH_REFERENCE_MISMATCH:{row.get('prediction_id','UNKNOWN')}")
         pid=row.get("prediction_id")
         if not pid:
             # Preserve legacy rows without modern IDs by exact-content hash.
@@ -664,6 +669,7 @@ def cycle():
         predictions.append(row); state["last_prediction"]=iso(latest_ts); state["context_cycles"]=state.get("context_cycles",0)+1; state["last_external_context"]=context; changed=True; issued=True; print(json.dumps(row,sort_keys=True))
     state["last_cycle_at"]=iso(datetime.now(timezone.utc)); state["accuracy"]=state["correct"]/state["resolved"] if state["resolved"] else None
     save_predictions(predictions); save_state(state)
+    print("LIVE_EVIDENCE_AUDIT:"+json.dumps(audit_stores(),sort_keys=True))
     if changed: git_commit()
     return "FORECAST" if issued else "NO_NEW_FORECAST"
 
