@@ -48,14 +48,16 @@ def build_decision_evidence(
     cutoff_time = _parse_time(feature_cutoff_at)
     issue_time = _parse_time(issued_at)
     target_time = _parse_time(target_ts)
+    # Check the strict contract first so equal/future cutoff violations are
+    # reported as temporal failures, not obscured by candle alignment checks.
+    if not cutoff_time < issue_time < target_time:
+        raise ValueError("EVIDENCE_TEMPORAL_CONTRACT_VIOLATION:feature_cutoff_at < issued_at < target_ts")
     if times[-1] != source_open:
         raise ValueError("EVIDENCE_SOURCE_CANDLE_MUST_MATCH_LAST_CANDLE")
     if any(value > source_open for value in times):
         raise ValueError("EVIDENCE_FUTURE_CANDLE_DETECTED")
     if cutoff_time < times[-1] or cutoff_time != source_open:
         raise ValueError("EVIDENCE_FEATURE_CUTOFF_MUST_MATCH_LATEST_INPUT_CANDLE")
-    if not cutoff_time < issue_time < target_time:
-        raise ValueError("EVIDENCE_TEMPORAL_CONTRACT_VIOLATION:feature_cutoff_at < issued_at < target_ts")
     if issue_time < source_open + timedelta(minutes=1):
         raise ValueError("EVIDENCE_ISSUED_BEFORE_SOURCE_CANDLE_CLOSE")
     if not config_hash:
@@ -81,10 +83,7 @@ def build_decision_evidence(
                 normalized.append([float(component) for component in value])
             else:
                 normalized.append(float(value))
-        ohlc_rows.append({
-            "symbol_or_field": field,
-            "values": normalized,
-        })
+        ohlc_rows.append({"symbol_or_field": field, "values": normalized})
 
     payload = {
         "schema": "claimlab.forecast_decision_evidence.v1",
