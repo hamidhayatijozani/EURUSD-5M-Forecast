@@ -19,6 +19,8 @@ PRED_PATH=Path("research/live_predictions.jsonl")
 CLAIM_LEDGER_PATH=Path("research/claimlab_live_observations.jsonl")
 CROSS_ASSET_LEDGER_PATH=Path("research/cross_asset_live_observations.jsonl")
 CROSS_ASSET_CONTRACT_VERSION="live-1m-signals-to-5m-target-v1"
+CROSS_ASSET_CONTRACT_VERSION_V2="live-1m-gbpusd-usdjpy-to-5m-target-v2"
+CROSS_ASSET_CANDIDATES_V2=("LIVE1M2_NO_TRADE","LIVE1M2_USDJPY_INVERSE_3M","LIVE1M2_GBPUSD_MOMENTUM_3M","LIVE1M2_GBPUSD_USDJPY_CONSENSUS_3M","LIVE1M2_EURUSD_MOMENTUM_CONFIRMED_2SOURCE","LIVE1M2_EUR_GBP_DIVERGENCE_Z15","LIVE1M2_EURUSD_CATCHUP_2SOURCE")
 CROSS_ASSET_CANDIDATES=("LIVE1M_NO_TRADE","LIVE1M_DOLLAR_CONSENSUS_3M","LIVE1M_DXY_INVERSE_3M","LIVE1M_COMPOSITE_Z15","LIVE1M_EUR_GBP_DIVERGENCE_Z15","LIVE1M_EURUSD_MOMENTUM_CONFIRMED","LIVE1M_EURUSD_CATCHUP")
 FRICTION=0.00002
 HORIZON=5
@@ -146,6 +148,53 @@ def cross_asset_candidates(series):
         status="READY_PARTIAL"
     return positions,status
 
+
+
+def cross_asset_candidates_v2(series):
+    """Frozen two-FX-pair family; does not depend on the unavailable DXY feed."""
+    positions={name:None for name in CROSS_ASSET_CANDIDATES_V2}
+    positions["LIVE1M2_NO_TRADE"]=0
+    required=("EURUSD","GBPUSD","USDJPY")
+    available={symbol for symbol in required if symbol in series and len(series[symbol])>=30}
+    returns={}
+    for symbol in available:
+        prices=[float(x) for x in series[symbol]]
+        returns[symbol]=[prices[i]/prices[i-1]-1.0 for i in range(1,len(prices))]
+    recent={symbol:values[-24:] for symbol,values in returns.items()}
+    r3={symbol:sum(values[-3:]) for symbol,values in recent.items()}
+    if "USDJPY" in available:
+        positions["LIVE1M2_USDJPY_INVERSE_3M"]=-_sign(r3["USDJPY"])
+    if "GBPUSD" in available:
+        positions["LIVE1M2_GBPUSD_MOMENTUM_3M"]=_sign(r3["GBPUSD"])
+
+    consensus=None
+    if {"GBPUSD","USDJPY"}.issubset(available):
+        votes=[-_sign(r3["USDJPY"]),_sign(r3["GBPUSD"])]
+        consensus=1 if sum(votes)==2 else -1 if sum(votes)==-2 else 0
+        positions["LIVE1M2_GBPUSD_USDJPY_CONSENSUS_3M"]=consensus
+        eur_direction=_sign(r3["EURUSD"]) if "EURUSD" in available else 0
+        positions["LIVE1M2_EURUSD_MOMENTUM_CONFIRMED_2SOURCE"]=(
+            eur_direction if consensus and eur_direction==consensus else 0)
+
+    rel_z=None
+    if {"EURUSD","GBPUSD"}.issubset(available):
+        relative=[a-b for a,b in zip(recent["EURUSD"],recent["GBPUSD"])]
+        rel_vol=pstdev(relative)
+        rel_z=sum(relative[-3:])/(rel_vol*(3.0**0.5)) if rel_vol>0 else 0.0
+        positions["LIVE1M2_EUR_GBP_DIVERGENCE_Z15"]=-_sign(rel_z) if abs(rel_z)>=1.5 else 0
+        if consensus is not None:
+            positions["LIVE1M2_EURUSD_CATCHUP_2SOURCE"]=(
+                consensus if abs(rel_z)>=1.5 and consensus and
+                ((rel_z<0 and consensus>0) or (rel_z>0 and consensus<0)) else 0)
+
+    active_available=any(value is not None for key,value in positions.items() if key!="LIVE1M2_NO_TRADE")
+    if not active_available:
+        status="UNAVAILABLE_MISSING_GBPUSD_USDJPY_HISTORY"
+    elif {"GBPUSD","USDJPY"}.issubset(available):
+        status="READY"
+    else:
+        status="READY_PARTIAL"
+    return positions,status
 
 
 def _read_cross_asset_ledger():
