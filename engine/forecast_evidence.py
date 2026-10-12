@@ -67,9 +67,15 @@ def build_decision_evidence(
     for field, values in sorted(ohlc.items()):
         if len(values) != expected:
             raise ValueError(f"EVIDENCE_OHLC_LENGTH_MISMATCH:{field}")
+        normalized = []
+        for value in values:
+            if isinstance(value, (list, tuple)):
+                normalized.append([float(component) for component in value])
+            else:
+                normalized.append(float(value))
         ohlc_rows.append({
-            "field": field,
-            "values": [float(value) for value in values],
+            "symbol_or_field": field,
+            "values": normalized,
         })
 
     payload = {
