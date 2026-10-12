@@ -1,0 +1,22 @@
+{
+  "schema": "claimlab.recent_oos_preregistration.v1",
+  "experiment_id": "EURUSD-M5-POST-CUTOFF-OOS-001",
+  "status": "PRE_REGISTERED",
+  "historical_dataset_sha256": "8c6caff3b52b7bf74c7836297e51d405cd1ecb30f0e02cc5bf2fb85ae0afd3f6",
+  "historical_dataset_last_bar_open": "2026-09-25T20:55:00Z",
+  "oos_start_at": "2026-09-25T21:00:00Z",
+  "source": "Yahoo Finance EURUSD=X 5-minute OHLC chart history, 60-day request",
+  "candidate_ids": ["NO_TRADE","MOMENTUM_3","CONTRARIAN_3","MOMENTUM_12","CONTRARIAN_12","Z15_MOMENTUM_3","Z15_CONTRARIAN_3","BREAKOUT_12","WICK_REVERSAL_1"],
+  "primary_cost": 0.00002,
+  "sensitivity_costs": [0.00002, 0.00005, 0.0001],
+  "inference": {
+    "block_size_bars": 5,
+    "bootstrap_resamples": 1000,
+    "alpha": 0.05,
+    "multiple_testing": "Benjamini-Hochberg across the frozen candidate set",
+    "minimum_test_trades_for_candidate_gate": 200
+  },
+  "verdict_rule": "Candidate survives only if at least 200 OOS trades, 95% block-bootstrap lower bound of mean net return per bar above zero at 0.2 pip, and BH-corrected test rejected. No-trade is the control.",
+  "parameter_tuning_on_oos": false,
+  "scientific_boundary": "Post-cutoff historical evaluation, not live evidence or a broker-cost/profitability claim."
+}
