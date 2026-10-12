@@ -11,9 +11,11 @@ def test_live_cross_asset_candidates_require_all_aligned_sources():
     prices = [1.1 + i * 0.0001 for i in range(40)]
     partial = {"EURUSD": prices, "GBPUSD": prices, "USDJPY": prices}
     positions, status = cross_asset_candidates(partial)
-    assert status == "UNAVAILABLE_MISSING_CROSS_ASSET_HISTORY"
+    assert status == "READY_PARTIAL"
     assert positions["LIVE1M_NO_TRADE"] == 0
-    assert all(positions[name] is None for name in CROSS_ASSET_CANDIDATES if name != "LIVE1M_NO_TRADE")
+    assert positions["LIVE1M_EUR_GBP_DIVERGENCE_Z15"] is not None
+    assert positions["LIVE1M_DXY_INVERSE_3M"] is None
+    assert positions["LIVE1M_DOLLAR_CONSENSUS_3M"] is None
 
 
 def test_live_cross_asset_candidates_use_past_aligned_series():
