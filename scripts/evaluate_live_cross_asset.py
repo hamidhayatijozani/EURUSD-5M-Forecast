@@ -1,5 +1,6 @@
 """Evaluate the forward-only cross-asset paper ledger; never execute orders."""
 import json, os
+from datetime import datetime
 from pathlib import Path
 from claimlab.statistics import StatisticalEngine
 from scripts.live_minute_loop import _read_cross_asset_ledger, CROSS_ASSET_CONTRACT_VERSION
@@ -15,8 +16,11 @@ BLOCK_SIZE=5
 
 def evaluate(rows,code_commit="LOCAL"):
     registration=json.loads(REGISTRATION.read_text(encoding="utf-8"))
+    total_chain_rows=len(rows)
+    activation=datetime.fromisoformat(registration["activation_time"].replace("Z","+00:00"))
     rows=[r for r in rows if r.get("contract_version")==CROSS_ASSET_CONTRACT_VERSION
-          and r.get("freshness_status")=="FRESH"]
+          and r.get("freshness_status")=="FRESH"
+          and datetime.fromisoformat(r["issued_at"].replace("Z","+00:00"))>=activation]
     candidates=registration["candidate_ids"]
     metrics={}; p_values=[]
     for index,candidate in enumerate(candidates):
@@ -67,7 +71,7 @@ def evaluate(rows,code_commit="LOCAL"):
             and metric["ci_lower_net_mean"]>0.0
             and reject)
     survivors=[c for c in candidates if metrics[c]["survives_gate"]]
-    enough=any(metrics[c]["resolved_observations"]>=MIN_RESOLVED for c in candidates)
+    enough=any(metrics[c]["resolved_observations"]>=MIN_RESOLVED for c in candidates if c!="LIVE1M_NO_TRADE")
     return {
         "schema":"claimlab.live_cross_asset_evaluation.v1",
         "status":"COMPUTED_FORWARD_PAPER_EVIDENCE" if enough else "INSUFFICIENT_DATA",
@@ -75,7 +79,7 @@ def evaluate(rows,code_commit="LOCAL"):
         "surviving_candidates":survivors,
         "registration":registration,
         "execution":{"code_commit":code_commit,"contract_version":CROSS_ASSET_CONTRACT_VERSION,
-                     "rows_in_hash_chain":len(rows),"minimum_resolved":MIN_RESOLVED,
+                     "rows_in_hash_chain":total_chain_rows,"eligible_fresh_rows":len(rows),"minimum_resolved":MIN_RESOLVED,
                      "minimum_trades":MIN_TRADES,"primary_cost":COSTS[0],
                      "cost_sensitivity":list(COSTS),"block_size":BLOCK_SIZE,
                      "bootstrap_resamples":RESAMPLES,
