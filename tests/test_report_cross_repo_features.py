@@ -59,7 +59,7 @@ def test_unavailable_snapshot_is_not_counted_as_valid():
     assert report["counts"]["resolved_valid_joined_observations"] == 0
 
 
-def test_duplicate_prediction_ids_are_reported_not_silently_deduplicated():
+def test_duplicate_prediction_ids_are_excluded_from_sample_size():
     report = build_report([row("same"), row("same")])
     assert report["counts"]["duplicate_prediction_ids"] == 1
-    assert report["counts"]["resolved_valid_joined_observations"] == 2
+    assert report["counts"]["resolved_valid_joined_observations"] == 1
