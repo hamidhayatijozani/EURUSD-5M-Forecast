@@ -215,53 +215,60 @@ def _read_cross_asset_ledger():
 
 
 def append_cross_asset_observations(prediction,actual,resolved_at,code_commit):
-    positions=prediction.get("cross_asset_candidates")
-    if not isinstance(positions,dict):
+    candidate_sets=(
+        (CROSS_ASSET_CONTRACT_VERSION,prediction.get("cross_asset_candidates"),prediction.get("cross_asset_status")),
+        (CROSS_ASSET_CONTRACT_VERSION_V2,prediction.get("cross_asset_candidates_v2"),prediction.get("cross_asset_status_v2")),
+    )
+    candidate_sets=[item for item in candidate_sets if isinstance(item[1],dict)]
+    if not candidate_sets:
         return 0
     rows,previous=_read_cross_asset_ledger()
     known={row["observation_id"] for row in rows}
     appended=0
-    for candidate_id,position in positions.items():
-        if position is None:
-            continue
-        observation_id=f"{prediction['prediction_id']}::{candidate_id}"
-        if observation_id in known:
-            continue
-        position=int(position)
-        gross=position*float(actual)
-        friction=FRICTION if position else 0.0
-        payload={
-            "schema":"claimlab.live_cross_asset_observation.v1",
-            "observation_id":observation_id,
-            "prediction_id":prediction["prediction_id"],
-            "candidate_id":candidate_id,
-            "contract_version":CROSS_ASSET_CONTRACT_VERSION,
-            "issued_at":prediction["prediction_ts"],
-            "target_at":prediction["target_at"],
-            "resolved_at":resolved_at,
-            "position":position,
-            "actual_return":float(actual),
-            "gross_return":gross,
-            "friction":friction,
-            "net_return":gross-friction,
-            "provider":prediction.get("provider","Yahoo"),
-            "source_candle_ts":prediction.get("source_candle_ts"),
-            "observed_at":prediction.get("observed_at"),
-            "data_age_seconds":prediction.get("data_age_seconds"),
-            "freshness_status":prediction.get("freshness_status"),
-            "context_status":prediction.get("cross_asset_status"),
-            "code_commit":code_commit,
-            "previous_hash":previous,
-        }
-        record_hash=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":")).encode()).hexdigest()
-        payload["record_hash"]=record_hash
-        CROSS_ASSET_LEDGER_PATH.parent.mkdir(parents=True,exist_ok=True)
-        with CROSS_ASSET_LEDGER_PATH.open("a",encoding="utf-8") as handle:
-            handle.write(json.dumps(payload,sort_keys=True)+chr(10))
-        rows.append(payload); known.add(observation_id); previous=record_hash; appended+=1
+    for contract_version,positions,context_status in candidate_sets:
+        for candidate_id,position in positions.items():
+            if position is None:
+                continue
+            observation_id=f"{prediction['prediction_id']}::{candidate_id}"
+            if observation_id in known:
+                continue
+            position=int(position)
+            gross=position*float(actual)
+            friction=FRICTION if position else 0.0
+            payload={
+                "schema":"claimlab.live_cross_asset_observation.v1",
+                "observation_id":observation_id,
+                "prediction_id":prediction["prediction_id"],
+                "candidate_id":candidate_id,
+                "contract_version":contract_version,
+                "issued_at":prediction["prediction_ts"],
+                "target_at":prediction["target_at"],
+                "resolved_at":resolved_at,
+                "position":position,
+                "actual_return":float(actual),
+                "gross_return":gross,
+                "friction":friction,
+                "net_return":gross-friction,
+                "provider":prediction.get("provider","Yahoo"),
+                "source_candle_ts":prediction.get("source_candle_ts"),
+                "observed_at":prediction.get("observed_at"),
+                "data_age_seconds":prediction.get("data_age_seconds"),
+                "freshness_status":prediction.get("freshness_status"),
+                "context_status":context_status,
+                "available_symbols":prediction.get("cross_asset_available_symbols",[]),
+                "code_commit":code_commit,
+                "previous_hash":previous,
+            }
+            record_hash=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+            payload["record_hash"]=record_hash
+            CROSS_ASSET_LEDGER_PATH.parent.mkdir(parents=True,exist_ok=True)
+            with CROSS_ASSET_LEDGER_PATH.open("a",encoding="utf-8") as handle:
+                handle.write(json.dumps(payload,sort_keys=True)+chr(10))
+            rows.append(payload); known.add(observation_id); previous=record_hash; appended+=1
     if appended:
         _read_cross_asset_ledger()
     return appended
+
 
 
 def _price_map(times,prices):
