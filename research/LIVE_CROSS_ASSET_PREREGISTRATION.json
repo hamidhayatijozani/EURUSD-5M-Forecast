@@ -4,7 +4,7 @@
   "status": "PRE_REGISTERED_FORWARD_PAPER",
   "activation_time": "2026-10-12T01:23:59Z",
   "activation_commit": "2481348e3ef6d290eb82f5f298a8d91c791a9aad",
-  "activation_rule": "Only predictions issued at or after the exact merge timestamp and by the deployed contract are included; earlier rows are excluded even if a test or prior run used the same schema string."
+  "activation_rule": "Only predictions issued at or after the exact merge timestamp and by the deployed contract are included; earlier rows are excluded even if a test or prior run used the same schema string.",
   "input_interval": "1 minute closed candles",
   "target_horizon_minutes": 5,
   "primary_cost": 0.00002,
