@@ -284,6 +284,138 @@ def settle(rows,times,prices,state,code_commit):
         changed=True
     return changed
 
+EVIDENCE_RELATIVE_PATHS=(
+    str(STATE_PATH),str(PRED_PATH),str(CLAIM_LEDGER_PATH),str(CROSS_ASSET_LEDGER_PATH)
+)
+
+
+def _parse_jsonl_text(content):
+    return [json.loads(line) for line in content.splitlines() if line.strip()]
+
+
+def _merge_prediction_texts(local_text,remote_text):
+    merged={}
+    core_keys=("prediction_id","prediction_ts","target_at","prediction",
+               "baseline_prediction","source_candle_ts","feature_cutoff_at","config_hash")
+    for row in _parse_jsonl_text(remote_text)+_parse_jsonl_text(local_text):
+        pid=row.get("prediction_id")
+        if not pid:
+            raise RuntimeError("LIVE_EVIDENCE_PREDICTION_WITHOUT_ID")
+        existing=merged.get(pid)
+        if existing is None:
+            merged[pid]=row
+            continue
+        for key in core_keys:
+            if existing.get(key)!=row.get(key):
+                raise RuntimeError(f"LIVE_EVIDENCE_PREDICTION_CONFLICT:{pid}:{key}")
+        if existing.get("status")=="RESOLVED" and row.get("status")=="RESOLVED":
+            for key in ("actual","target_price","error","error_absolute",
+                        "baseline_error_absolute","direction_hit"):
+                if existing.get(key) is not None and row.get(key) is not None and existing.get(key)!=row.get(key):
+                    raise RuntimeError(f"LIVE_EVIDENCE_RESOLUTION_CONFLICT:{pid}:{key}")
+        if existing.get("status")!="RESOLVED" and row.get("status")=="RESOLVED":
+            merged[pid]=row
+        elif existing.get("status")==row.get("status"):
+            old_key=(bool(existing.get("cross_asset_observations_written")),existing.get("resolved_at",""),existing.get("observed_at",""))
+            new_key=(bool(row.get("cross_asset_observations_written")),row.get("resolved_at",""),row.get("observed_at",""))
+            if new_key>old_key:
+                merged[pid]=row
+    return sorted(merged.values(),key=lambda row:(row.get("prediction_ts",""),row.get("prediction_id","")))
+
+
+def _merge_claim_ledger_texts(local_text,remote_text):
+    merged={}
+    for row in _parse_jsonl_text(remote_text)+_parse_jsonl_text(local_text):
+        body={key:value for key,value in row.items() if key not in ("previous_hash","ledger_hash")}
+        observation=Observation(**body)
+        pid=observation.prediction_id
+        existing=merged.get(pid)
+        if existing is None:
+            merged[pid]=body
+            continue
+        for key,value in body.items():
+            if key=="resolved_at":
+                continue
+            if existing.get(key)!=value:
+                raise RuntimeError(f"LIVE_EVIDENCE_LEDGER_CONFLICT:{pid}:{key}")
+        if body.get("resolved_at","")>existing.get("resolved_at",""):
+            merged[pid]=body
+    ordered=sorted(merged.values(),key=lambda row:(row["issued_at"],row["prediction_id"]))
+    CLAIM_LEDGER_PATH.parent.mkdir(parents=True,exist_ok=True)
+    CLAIM_LEDGER_PATH.unlink(missing_ok=True)
+    ledger=Ledger(CLAIM_LEDGER_PATH)
+    ledger.append_many([Observation(**row) for row in ordered])
+    if not ledger.verify():
+        raise RuntimeError("LIVE_EVIDENCE_MERGED_CLAIM_LEDGER_INVALID")
+
+
+def _merge_cross_asset_ledger_texts(local_text,remote_text):
+    merged={}
+    for row in _parse_jsonl_text(remote_text)+_parse_jsonl_text(local_text):
+        body={key:value for key,value in row.items() if key not in ("previous_hash","record_hash")}
+        oid=body.get("observation_id")
+        if not oid:
+            raise RuntimeError("CROSS_ASSET_OBSERVATION_WITHOUT_ID")
+        existing=merged.get(oid)
+        if existing is None:
+            merged[oid]=body
+            continue
+        for key,value in body.items():
+            if key=="resolved_at":
+                continue
+            if existing.get(key)!=value:
+                raise RuntimeError(f"CROSS_ASSET_OBSERVATION_CONFLICT:{oid}:{key}")
+        if body.get("resolved_at","")>existing.get("resolved_at",""):
+            merged[oid]=body
+    ordered=sorted(merged.values(),key=lambda row:(row.get("issued_at",""),row.get("candidate_id",""),row.get("observation_id","")))
+    CROSS_ASSET_LEDGER_PATH.parent.mkdir(parents=True,exist_ok=True)
+    CROSS_ASSET_LEDGER_PATH.unlink(missing_ok=True)
+    previous="0"*64
+    with CROSS_ASSET_LEDGER_PATH.open("w",encoding="utf-8") as handle:
+        for body in ordered:
+            payload=dict(body)
+            payload["previous_hash"]=previous
+            digest=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+            payload["record_hash"]=digest
+            handle.write(json.dumps(payload,sort_keys=True)+chr(10))
+            previous=digest
+    _read_cross_asset_ledger()
+
+
+def _merge_concurrent_evidence_to_main():
+    local_text={path:(Path(path).read_text(encoding="utf-8") if Path(path).exists() else "") for path in EVIDENCE_RELATIVE_PATHS}
+    remote_text={}
+    for path in EVIDENCE_RELATIVE_PATHS:
+        result=subprocess.run(["git","show",f"origin/main:{path}"],capture_output=True,text=True)
+        remote_text[path]=result.stdout if result.returncode==0 else ""
+    subprocess.run(["git","reset","--hard","origin/main"],check=True)
+    predictions=_merge_prediction_texts(local_text[str(PRED_PATH)],remote_text[str(PRED_PATH)])
+    PRED_PATH.parent.mkdir(parents=True,exist_ok=True)
+    PRED_PATH.write_text("".join(json.dumps(row,sort_keys=True)+chr(10) for row in predictions),encoding="utf-8")
+    _merge_claim_ledger_texts(local_text[str(CLAIM_LEDGER_PATH)],remote_text[str(CLAIM_LEDGER_PATH)])
+    _merge_cross_asset_ledger_texts(local_text[str(CROSS_ASSET_LEDGER_PATH)],remote_text[str(CROSS_ASSET_LEDGER_PATH)])
+    local_state=json.loads(local_text[str(STATE_PATH)]) if local_text[str(STATE_PATH)].strip() else {}
+    remote_state=json.loads(remote_text[str(STATE_PATH)]) if remote_text[str(STATE_PATH)].strip() else {}
+    state=max((local_state,remote_state),key=lambda item:item.get("last_cycle_at",""),default={})
+    state=dict(state)
+    last_predictions=[item.get("last_prediction") for item in (local_state,remote_state) if item.get("last_prediction")]
+    if last_predictions:
+        state["last_prediction"]=max(last_predictions)
+    last_cycles=[item.get("last_cycle_at") for item in (local_state,remote_state) if item.get("last_cycle_at")]
+    if last_cycles:
+        state["last_cycle_at"]=max(last_cycles)
+    state["context_cycles"]=max(local_state.get("context_cycles",0),remote_state.get("context_cycles",0))
+    _reconcile_current_contract_metrics(state)
+    save_state(state)
+    existing=[path for path in EVIDENCE_RELATIVE_PATHS if Path(path).exists()]
+    subprocess.run(["git","add","--",*existing],check=True)
+    if subprocess.run(["git","diff","--cached","--quiet"]).returncode==0:
+        return True
+    subprocess.run(["git","commit","-m","chore: reconcile concurrent live evidence [skip ci]"],check=True)
+    push=subprocess.run(["git","push","origin","HEAD:main"],capture_output=True,text=True)
+    return push.returncode==0
+
+
 def _push_commit_with_rebase(max_attempts=4):
     """Serialize evidence persistence against concurrent main-branch updates."""
     last_error = ""
@@ -293,7 +425,16 @@ def _push_commit_with_rebase(max_attempts=4):
             ["git", "rebase", "origin/main"], capture_output=True, text=True
         )
         if rebase.returncode != 0:
+            conflict_result=subprocess.run(
+                ["git","diff","--name-only","--diff-filter=U"],capture_output=True,text=True
+            )
+            conflict_paths=set(conflict_result.stdout.splitlines())
             subprocess.run(["git", "rebase", "--abort"], check=False)
+            if conflict_paths and conflict_paths.issubset(set(EVIDENCE_RELATIVE_PATHS)):
+                if _merge_concurrent_evidence_to_main():
+                    return
+                last_error="LIVE_EVIDENCE_RECONCILE_PUSH_REJECTED"
+                continue
             detail = (rebase.stderr or rebase.stdout or "unknown rebase conflict")[-1200:]
             raise RuntimeError(f"LIVE_EVIDENCE_REBASE_CONFLICT: {detail}")
         push = subprocess.run(
