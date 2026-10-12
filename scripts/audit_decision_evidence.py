@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Audit immutable decision snapshots in the existing prediction JSONL ledger.
 
-Historical predictions without snapshots remain explicitly unaudited.
+Historical predictions without snapshots remain explicitly unaudited. The report is emitted as JSON for CI artifact capture.
 """
 import json
 from pathlib import Path
