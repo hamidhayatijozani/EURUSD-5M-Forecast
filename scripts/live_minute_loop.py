@@ -606,9 +606,11 @@ def cycle():
             series,ohlc_map["EURUSD"][-60:],state,context)
         cross_asset_enabled=all(k in series for k in ("GBPUSD","USDJPY","DXY"))
         cross_candidates,cross_status=cross_asset_candidates(series)
+        cross_candidates_v2,cross_status_v2=cross_asset_candidates_v2(series)
         config={"engine":f"DEEP-OHLC-PATTERNS+ALGORITHM-FACTORY+{signal.name}",
                 "cross_asset_enabled":cross_asset_enabled,
                 "cross_asset_contract":CROSS_ASSET_CONTRACT_VERSION,
+                "cross_asset_contract_v2":CROSS_ASSET_CONTRACT_VERSION_V2,
                 "horizon_seconds":300,"friction":FRICTION}
         import hashlib
         config_hash=hashlib.sha256(json.dumps(config,sort_keys=True,separators=(",",":")).encode()).hexdigest()
@@ -622,6 +624,7 @@ def cycle():
           "config_hash":config_hash,"status":"PENDING","cross_asset_enabled":cross_asset_enabled,
           "cross_asset_contract_version":CROSS_ASSET_CONTRACT_VERSION,"cross_asset_candidates":cross_candidates,"cross_asset_status":cross_status,
           "cross_asset_available_symbols":sorted(k for k in series if k!="EURUSD"),
+          "cross_asset_contract_version_v2":CROSS_ASSET_CONTRACT_VERSION_V2,"cross_asset_candidates_v2":cross_candidates_v2,"cross_asset_status_v2":cross_status_v2,
           "provider":"Yahoo","source_candle_ts":iso(source_candle_ts),"observed_at":iso(observed_at),
           "data_age_seconds":data_age_seconds,"freshness_limit_seconds":90.0,"freshness_status":"FRESH",
           "engine":f"DEEP-OHLC-PATTERNS+ALGORITHM-FACTORY+{signal.name}+NEWS+TOP50-24H+DATACENTER-POWER+ONLINE-CALIBRATION"}
