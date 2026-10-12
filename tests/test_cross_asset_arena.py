@@ -29,3 +29,17 @@ def test_cross_asset_arena_skips_missing_auxiliary_history():
     dxy=[]  # no DXY data must not be fabricated
     rows=build_cross_asset_observations({"EURUSD":eur,"GBPUSD":gbp,"USDJPY":jpy,"DXY":dxy})
     assert rows==[]
+
+
+def test_cross_asset_signal_is_invariant_to_future_target_price():
+    start=datetime(2026,10,1,tzinfo=timezone.utc)
+    series={}
+    for symbol,price in (("EURUSD",1.1),("GBPUSD",1.3),("USDJPY",150.0),("DXY",100.0)):
+        series[symbol]=_bars(start,40,price)
+    first=build_cross_asset_observations(series)
+    changed={symbol:[dict(row) for row in rows] for symbol,rows in series.items()}
+    changed["EURUSD"][-1]["close"]*=1.02
+    changed["EURUSD"][-1]["high"]*=1.02
+    second=build_cross_asset_observations(changed)
+    assert first[-1]["positions"]==second[-1]["positions"]
+    assert first[-1]["actual"]!=second[-1]["actual"]
