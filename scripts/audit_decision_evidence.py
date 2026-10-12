@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Audit immutable decision snapshots in the existing prediction JSONL ledger."""
+"""Audit immutable decision snapshots in the existing prediction JSONL ledger.
+
+Historical predictions without snapshots remain explicitly unaudited.
+"""
 import json
 from pathlib import Path
 from engine.forecast_evidence import verify_decision_evidence
