@@ -68,6 +68,7 @@ def run_cycle(age_since_close, per_fetch_latency=0.0):
 
     with tempfile.TemporaryDirectory() as tmp, \
             mock.patch.dict(os.environ), \
+            mock.patch.dict(providers.LAST_PROVIDER_BY_SYMBOL, {}, clear=True), \
             mock.patch.object(feed, "fetch_1m_ohlc", fake_fetch), \
             mock.patch.object(loop, "datetime", _fake_datetime(clock)), \
             mock.patch.object(loop, "collect_external_context",
