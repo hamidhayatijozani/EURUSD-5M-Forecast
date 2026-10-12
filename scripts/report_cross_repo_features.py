@@ -5,6 +5,7 @@ This report is descriptive only. It does not fit a model or claim feature value.
 import argparse
 import hashlib
 import json
+from datetime import datetime
 from pathlib import Path
 from statistics import mean
 
@@ -30,11 +31,23 @@ def _finite_number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool) and value == value and abs(value) != float("inf")
 
 
+def _timestamp(value):
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed
+
+
 def build_report(rows):
     seen_ids = set()
     duplicate_ids = 0
+    missing_ids = 0
     total = len(rows)
-    resolved = []
     ready = 0
     unavailable = 0
     missing_snapshot = 0
@@ -43,27 +56,27 @@ def build_report(rows):
 
     for row in rows:
         pid = row.get("prediction_id")
-        if pid:
-            if pid in seen_ids:
-                duplicate_ids += 1
-            seen_ids.add(pid)
+        if not pid:
+            missing_ids += 1
+            continue
+        if pid in seen_ids:
+            duplicate_ids += 1
+            continue
+        seen_ids.add(pid)
 
         snapshot = row.get("experimental_feature_snapshot")
         if not isinstance(snapshot, dict):
             missing_snapshot += 1
-            continue
-        if snapshot.get("status") == "UNAVAILABLE":
-            unavailable += 1
             continue
         if snapshot.get("status") != "READY":
             unavailable += 1
             continue
         ready += 1
 
-        issue = row.get("prediction_ts")
-        cutoff = snapshot.get("feature_cutoff_at")
-        target = row.get("target_at")
-        if not pid or not issue or not cutoff or not target or cutoff > issue:
+        issue = _timestamp(row.get("prediction_ts"))
+        cutoff = _timestamp(snapshot.get("feature_cutoff_at"))
+        target = _timestamp(row.get("target_at"))
+        if issue is None or cutoff is None or target is None or cutoff > issue or target <= issue:
             invalid_temporal += 1
             continue
         values = snapshot.get("values")
@@ -78,13 +91,12 @@ def build_report(rows):
         baseline = row.get("baseline_prediction")
         if not all(_finite_number(v) for v in (actual, prediction, baseline)):
             continue
-        if not row.get("resolved_at"):
+        if _timestamp(row.get("resolved_at")) is None:
             continue
-        resolved.append(row)
         valid_joined.append({
             "prediction_id": pid,
-            "target_at": target,
-            "prediction_ts": issue,
+            "target_at": row["target_at"],
+            "prediction_ts": row["prediction_ts"],
             "actual_return": actual,
             "engine_abs_error": abs(prediction - actual),
             "baseline_abs_error": abs(baseline - actual),
@@ -100,6 +112,7 @@ def build_report(rows):
         "counts": {
             "prediction_rows": total,
             "unique_prediction_ids": len(seen_ids),
+            "missing_prediction_ids": missing_ids,
             "duplicate_prediction_ids": duplicate_ids,
             "snapshots_ready": ready,
             "snapshots_unavailable_or_unknown": unavailable,
@@ -112,8 +125,9 @@ def build_report(rows):
         "feature_target_correlations": None,
         "notes": [
             "No model is fitted and no feature is credited with incremental predictive value.",
-            "Rows are joined within immutable prediction records using prediction_id and exact target_at.",
-            "The issue/cutoff check is lexical ISO-8601 comparison; timestamps must use normalized UTC ISO-8601 strings.",
+            "Each observation is taken from one immutable prediction record keyed by prediction_id and exact target_at.",
+            "Timestamp comparisons parse timezone-aware ISO-8601 values and compare instants; timezone-naive timestamps are rejected.",
+            "Duplicate or missing prediction IDs are excluded from valid evidence.",
             "Overlapping five-minute targets are dependent; raw count is not effective sample size.",
             "A separate preregistered forward test with dependence-aware uncertainty and cost sensitivity is required.",
         ],
