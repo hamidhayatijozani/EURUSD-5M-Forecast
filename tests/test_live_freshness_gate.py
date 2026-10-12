@@ -182,6 +182,12 @@ class FreshnessGateTests(unittest.TestCase):
         error, rows = run_cycle(60.0, per_fetch_latency=1.5)
         self.assertIsNone(error, repr(error))
         row = rows[0]
+        from engine.forecast_evidence import verify_decision_evidence
+        self.assertIn("decision_evidence", row)
+        self.assertTrue(verify_decision_evidence(row["decision_evidence"]))
+        self.assertEqual(row["decision_evidence_sha256"], row["decision_evidence"]["snapshot_sha256"])
+        self.assertEqual(row["decision_evidence"]["source_candle_ts"], row["source_candle_ts"])
+        self.assertEqual(row["decision_evidence"]["config_hash"], row["config_hash"])
         target_open = datetime.fromisoformat(row["target_ts"])
         times = [target_open - timedelta(minutes=1), target_open]
         prices = [row["entry_price"], row["entry_price"] * 1.0003]
