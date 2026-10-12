@@ -1,7 +1,8 @@
 """Every-minute real-market 5-minute forecasting with exact-target resolution and ClaimLab evidence."""
-import json, os, subprocess, time
+import hashlib, json, os, subprocess, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from statistics import pstdev
 from engine.algorithm_factory import adaptive_ensemble, update_algorithm_stats, Candidate
 from engine.experiments import combined, pst_signal
 from engine.context import collect_external_context
@@ -15,6 +16,9 @@ from claimlab.schema import Observation
 STATE_PATH=Path("research/live_state.json")
 PRED_PATH=Path("research/live_predictions.jsonl")
 CLAIM_LEDGER_PATH=Path("research/claimlab_live_observations.jsonl")
+CROSS_ASSET_LEDGER_PATH=Path("research/cross_asset_live_observations.jsonl")
+CROSS_ASSET_CONTRACT_VERSION="live-1m-signals-to-5m-target-v1"
+CROSS_ASSET_CANDIDATES=("LIVE1M_NO_TRADE","LIVE1M_DOLLAR_CONSENSUS_3M","LIVE1M_DXY_INVERSE_3M","LIVE1M_COMPOSITE_Z15","LIVE1M_EUR_GBP_DIVERGENCE_Z15","LIVE1M_EURUSD_MOMENTUM_CONFIRMED","LIVE1M_EURUSD_CATCHUP")
 FRICTION=0.00002
 HORIZON=5
 SLEEP_SECONDS=60
@@ -80,6 +84,113 @@ def read_predictions():
 def save_predictions(rows):
     PRED_PATH.parent.mkdir(parents=True,exist_ok=True)
     PRED_PATH.write_text("".join(json.dumps(x,sort_keys=True)+"\n" for x in rows),encoding="utf-8")
+
+def _sign(value):
+    return 1 if value>0 else -1 if value<0 else 0
+
+
+def cross_asset_candidates(series):
+    """Freeze 1m closed-bar cross-asset signals for a 5m target."""
+    empty={"LIVE1M_NO_TRADE":0,**{name:None for name in CROSS_ASSET_CANDIDATES if name!="LIVE1M_NO_TRADE"}}
+    required=("EURUSD","GBPUSD","USDJPY","DXY")
+    if not all(key in series and len(series[key])>=30 for key in required):
+        return empty,"UNAVAILABLE_MISSING_CROSS_ASSET_HISTORY"
+    returns={}
+    for symbol in required:
+        prices=[float(x) for x in series[symbol]]
+        returns[symbol]=[prices[i]/prices[i-1]-1.0 for i in range(1,len(prices))]
+    recent={symbol:values[-24:] for symbol,values in returns.items()}
+    r3={symbol:sum(values[-3:]) for symbol,values in recent.items()}
+    z={}
+    for symbol,values in recent.items():
+        vol=pstdev(values)
+        z[symbol]=sum(values[-3:])/(vol*(3.0**0.5)) if vol>0 else 0.0
+    rel=[a-b for a,b in zip(recent["EURUSD"],recent["GBPUSD"])]
+    rel_vol=pstdev(rel)
+    rel_z=sum(rel[-3:])/(rel_vol*(3.0**0.5)) if rel_vol>0 else 0.0
+    votes=[_sign(-r3["DXY"]),_sign(-r3["USDJPY"]),_sign(r3["GBPUSD"])]
+    vote_sum=sum(votes)
+    consensus=1 if vote_sum>=2 else -1 if vote_sum<=-2 else 0
+    eur_direction=_sign(r3["EURUSD"])
+    composite=-z["DXY"]-z["USDJPY"]+z["GBPUSD"]
+    positions={
+        "LIVE1M_NO_TRADE":0,
+        "LIVE1M_DOLLAR_CONSENSUS_3M":consensus,
+        "LIVE1M_DXY_INVERSE_3M":-_sign(r3["DXY"]),
+        "LIVE1M_COMPOSITE_Z15":_sign(composite) if abs(composite)>=1.5 else 0,
+        "LIVE1M_EUR_GBP_DIVERGENCE_Z15":-_sign(rel_z) if abs(rel_z)>=1.5 else 0,
+        "LIVE1M_EURUSD_MOMENTUM_CONFIRMED":eur_direction if consensus and eur_direction==consensus else 0,
+        "LIVE1M_EURUSD_CATCHUP":(
+            consensus if abs(rel_z)>=1.5 and consensus and
+            ((rel_z<0 and consensus>0) or (rel_z>0 and consensus<0)) else 0),
+    }
+    return positions,"READY"
+
+
+def _read_cross_asset_ledger():
+    if not CROSS_ASSET_LEDGER_PATH.exists():
+        return [],"0"*64
+    rows=[json.loads(line) for line in CROSS_ASSET_LEDGER_PATH.read_text(encoding="utf-8").splitlines() if line.strip()]
+    previous="0"*64
+    for row in rows:
+        record_hash=row.get("record_hash")
+        payload={key:value for key,value in row.items() if key!="record_hash"}
+        if payload.get("previous_hash")!=previous:
+            raise RuntimeError("CROSS_ASSET_LEDGER_PREVIOUS_HASH_MISMATCH")
+        expected=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+        if record_hash!=expected:
+            raise RuntimeError("CROSS_ASSET_LEDGER_RECORD_HASH_MISMATCH")
+        previous=record_hash
+    return rows,previous
+
+
+def append_cross_asset_observations(prediction,actual,resolved_at,code_commit):
+    positions=prediction.get("cross_asset_candidates")
+    if not isinstance(positions,dict):
+        return 0
+    rows,previous=_read_cross_asset_ledger()
+    known={row["observation_id"] for row in rows}
+    appended=0
+    for candidate_id,position in positions.items():
+        if position is None:
+            continue
+        observation_id=f"{prediction['prediction_id']}::{candidate_id}"
+        if observation_id in known:
+            continue
+        position=int(position)
+        gross=position*float(actual)
+        friction=FRICTION if position else 0.0
+        payload={
+            "schema":"claimlab.live_cross_asset_observation.v1",
+            "observation_id":observation_id,
+            "prediction_id":prediction["prediction_id"],
+            "candidate_id":candidate_id,
+            "contract_version":CROSS_ASSET_CONTRACT_VERSION,
+            "issued_at":prediction["prediction_ts"],
+            "target_at":prediction["target_at"],
+            "resolved_at":resolved_at,
+            "position":position,
+            "actual_return":float(actual),
+            "gross_return":gross,
+            "friction":friction,
+            "net_return":gross-friction,
+            "provider":prediction.get("provider","Yahoo"),
+            "source_candle_ts":prediction.get("source_candle_ts"),
+            "observed_at":prediction.get("observed_at"),
+            "data_age_seconds":prediction.get("data_age_seconds"),
+            "freshness_status":prediction.get("freshness_status"),
+            "context_status":prediction.get("cross_asset_status"),
+            "code_commit":code_commit,
+            "previous_hash":previous,
+        }
+        record_hash=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+        payload["record_hash"]=record_hash
+        CROSS_ASSET_LEDGER_PATH.parent.mkdir(parents=True,exist_ok=True)
+        with CROSS_ASSET_LEDGER_PATH.open("a",encoding="utf-8") as handle:
+            handle.write(json.dumps(payload,sort_keys=True)+"\\n")
+        rows.append(payload); known.add(observation_id); previous=record_hash; appended+=1
+    return appended
+
 
 def _price_map(times,prices):
     return {iso(t):float(p) for t,p in zip(times,prices)}
@@ -154,9 +265,14 @@ def settle(rows,times,prices,state,code_commit):
           actual=actual,baseline_prediction=baseline,
           resolved_at=resolved_at,friction=(FRICTION,0.0,0.0))
         ledger=Ledger(CLAIM_LEDGER_PATH)
-        ledger.append(Observation(**obs))
+        existing_ids={item.get("prediction_id") for item in ledger._rows()}
+        if row["prediction_id"] not in existing_ids:
+            ledger.append(Observation(**obs))
         if not ledger.verify():
             raise RuntimeError("LIVE_CLAIM_LEDGER_INTEGRITY_FAILURE")
+        if row.get("cross_asset_candidates") and not row.get("cross_asset_observations_written"):
+            append_cross_asset_observations(row,actual,resolved_at,code_commit)
+            row["cross_asset_observations_written"]=True
         state["bias"]=max(-0.5,min(0.5,0.90*state["bias"]+0.10*error/0.0005))
         hit=((predicted>0 and actual>FRICTION) or (predicted<0 and actual<-FRICTION))
         candidates=[Candidate(x["name"],x["score"],x["predicted_return"]) for x in row.get("algorithms",[])]
@@ -193,7 +309,7 @@ def git_commit():
     if not os.environ.get("GITHUB_ACTIONS"): return
     subprocess.run(["git","config","user.name","github-actions[bot]"],check=False)
     subprocess.run(["git","config","user.email","41898282+users.noreply.github.com"],check=False)
-    evidence_paths=[p for p in (STATE_PATH,PRED_PATH,CLAIM_LEDGER_PATH) if p.exists()]
+    evidence_paths=[p for p in (STATE_PATH,PRED_PATH,CLAIM_LEDGER_PATH,CROSS_ASSET_LEDGER_PATH) if p.exists()]
     if not evidence_paths:return
     subprocess.run(["git","add",*[str(p) for p in evidence_paths]],check=True)
     if subprocess.run(["git","diff","--cached","--quiet"]).returncode==0:return
@@ -230,8 +346,10 @@ def cycle():
         series={k:v[-60:] for k,v in data.items()}; context=collect_external_context(list(zip(times[-120:],data["EURUSD"][-120:])),now=latest_ts)
         signal,direction,score,predicted_return,candidates,baseline_prediction=predict(series,ohlc_map["EURUSD"][-60:],state,context)
         cross_asset_enabled=all(k in series for k in ("GBPUSD","USDJPY","DXY"))
+        cross_candidates,cross_status=cross_asset_candidates(series)
         config={"engine":f"DEEP-OHLC-PATTERNS+ALGORITHM-FACTORY+{signal.name}",
                 "cross_asset_enabled":cross_asset_enabled,
+                "cross_asset_contract":CROSS_ASSET_CONTRACT_VERSION,
                 "horizon_seconds":300,"friction":FRICTION}
         import hashlib
         config_hash=hashlib.sha256(json.dumps(config,sort_keys=True,separators=(",",":")).encode()).hexdigest()
@@ -243,6 +361,7 @@ def cycle():
           "predicted_return":predicted_return,"baseline_prediction":baseline_prediction,
           "algorithms":[{"name":c.name,"score":c.score,"predicted_return":c.predicted_return} for c in candidates],"external_context":context,
           "config_hash":config_hash,"status":"PENDING","cross_asset_enabled":cross_asset_enabled,
+          "cross_asset_contract_version":CROSS_ASSET_CONTRACT_VERSION,"cross_asset_candidates":cross_candidates,"cross_asset_status":cross_status,
           "provider":"Yahoo","source_candle_ts":iso(source_candle_ts),"observed_at":iso(observed_at),
           "data_age_seconds":data_age_seconds,"freshness_limit_seconds":90.0,"freshness_status":"FRESH",
           "engine":f"DEEP-OHLC-PATTERNS+ALGORITHM-FACTORY+{signal.name}+NEWS+TOP50-24H+DATACENTER-POWER+ONLINE-CALIBRATION"}
