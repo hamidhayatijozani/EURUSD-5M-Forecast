@@ -15,7 +15,7 @@ def test_features_are_finite_and_have_documented_keys():
     assert 0.0 <= result["tenacity"] <= 1.0
     assert result["novelty"] >= 0.0
     assert result["realized_volatility"] >= 0.0
-    assert result["trend_efficiency"] >= 0.0
+    assert 0.0 <= result["trend_efficiency"] <= 1.0
 
 
 def test_feature_values_ignore_prices_older_than_requested_window():
