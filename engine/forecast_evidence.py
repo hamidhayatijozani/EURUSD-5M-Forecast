@@ -27,7 +27,9 @@ def build_decision_evidence(
     series: Mapping[str, Sequence[float]],
     ohlc: Mapping[str, Sequence[float]],
     source_candle_ts,
+    feature_cutoff_at,
     issued_at,
+    target_ts,
     config_hash: str,
     model_components: Mapping,
     external_context: Mapping,
@@ -43,11 +45,17 @@ def build_decision_evidence(
     if times != sorted(times) or len(set(times)) != len(times):
         raise ValueError("EVIDENCE_CANDLE_TIMES_MUST_BE_UNIQUE_AND_SORTED")
     source_open = _parse_time(source_candle_ts)
+    cutoff_time = _parse_time(feature_cutoff_at)
     issue_time = _parse_time(issued_at)
+    target_time = _parse_time(target_ts)
     if times[-1] != source_open:
         raise ValueError("EVIDENCE_SOURCE_CANDLE_MUST_MATCH_LAST_CANDLE")
     if any(value > source_open for value in times):
         raise ValueError("EVIDENCE_FUTURE_CANDLE_DETECTED")
+    if cutoff_time < times[-1] or cutoff_time != source_open:
+        raise ValueError("EVIDENCE_FEATURE_CUTOFF_MUST_MATCH_LATEST_INPUT_CANDLE")
+    if not cutoff_time < issue_time < target_time:
+        raise ValueError("EVIDENCE_TEMPORAL_CONTRACT_VIOLATION:feature_cutoff_at < issued_at < target_ts")
     if issue_time < source_open + timedelta(minutes=1):
         raise ValueError("EVIDENCE_ISSUED_BEFORE_SOURCE_CANDLE_CLOSE")
     if not config_hash:
@@ -81,8 +89,9 @@ def build_decision_evidence(
     payload = {
         "schema": "claimlab.forecast_decision_evidence.v1",
         "source_candle_ts": source_open.isoformat(),
-        "feature_cutoff_at": issue_time.isoformat(),
+        "feature_cutoff_at": cutoff_time.isoformat(),
         "issued_at": issue_time.isoformat(),
+        "target_ts": target_time.isoformat(),
         "candle_open_times": [value.isoformat() for value in times],
         "series_close_inputs": inputs,
         "eurusd_ohlc_inputs": ohlc_rows,
