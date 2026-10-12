@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "scripts/evaluate_live_ablation.py"
+      - "scripts/audit_decision_evidence.py"
+      - "engine/forecast_evidence.py"
       - "research/live_predictions.jsonl"
       - "research/cross_asset_live_observations.jsonl"
       - "research/live_state.json"
@@ -28,10 +30,13 @@ jobs:
       - name: Run offline ablation evaluator
         run: |
           PYTHONPATH=. python scripts/evaluate_live_ablation.py --output live-evidence-ablation-report.json
+          PYTHONPATH=. python scripts/audit_decision_evidence.py > decision-evidence-audit.json
       - name: Upload machine-readable report
         uses: actions/upload-artifact@v4
         with:
           name: live-evidence-ablation-report
-          path: live-evidence-ablation-report.json
+          path: |
+            live-evidence-ablation-report.json
+            decision-evidence-audit.json
           if-no-files-found: error
           retention-days: 14
