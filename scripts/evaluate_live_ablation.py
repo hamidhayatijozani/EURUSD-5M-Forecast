@@ -221,8 +221,7 @@ def evaluate_predictions(rows: list[dict]) -> dict:
 
 
 def evaluate_cross_asset(rows: list[dict]) -> dict:
-    groups: dict[str, list[tuple[float, float]]] = {}
-    coverage: dict[str, dict] = {}
+    groups: dict[str, list[dict]] = {}
     for row in rows:
         if row.get("schema") != "claimlab.live_cross_asset_observation.v1":
             continue
@@ -232,26 +231,45 @@ def evaluate_cross_asset(rows: list[dict]) -> dict:
         net = _number(row.get("net_return"))
         if not candidate or actual is None or position is None or net is None:
             continue
-        # Recover signed signal-return equivalent from the recorded position
-        # and observed net return, preserving the ledger's own friction field.
-        friction = _number(row.get("friction")) or 0.0
-        predicted_proxy = position * max(abs(actual), friction + 1e-12)
-        # Use the ledger's recorded net result for the actual strategy summary.
-        groups.setdefault(str(candidate), []).append((predicted_proxy, actual))
-        item = coverage.setdefault(str(candidate), {"n": 0, "active_n": 0, "net_return_sum": 0.0})
-        item["n"] += 1
-        item["active_n"] += int(position != 0)
-        item["net_return_sum"] += net
-    out = {}
-    for index, (candidate, pairs) in enumerate(sorted(groups.items())):
-        metrics = score_signal(pairs, friction=0.0, seed=3000 + index)
-        metrics["recorded_net_return_sum"] = coverage[candidate]["net_return_sum"]
-        metrics["recorded_n"] = coverage[candidate]["n"]
-        metrics["recorded_active_n"] = coverage[candidate]["active_n"]
-        metrics["status"] = "INSUFFICIENT_DATA" if coverage[candidate]["n"] < 10 else "SCORED"
-        out[candidate] = metrics
-    return {"status": "SCORED" if out else "INSUFFICIENT_DATA", "candidates": out}
+        groups.setdefault(str(candidate), []).append({
+            "actual": actual,
+            "position": int(position),
+            "net": net,
+            "friction": _number(row.get("friction")) or 0.0,
+            "freshness_status": row.get("freshness_status"),
+            "target_at": row.get("target_at"),
+        })
 
+    out = {}
+    for candidate, observations in sorted(groups.items()):
+        observations.sort(key=lambda row: str(row.get("target_at") or ""))
+        active = [row for row in observations if row["position"] != 0]
+        wins = sum(
+            (row["position"] > 0 and row["actual"] > row["friction"])
+            or (row["position"] < 0 and row["actual"] < -row["friction"])
+            for row in active
+        )
+        net_returns = [row["net"] for row in active]
+        ci = _block_bootstrap_mean_ci(net_returns, seed=3000 + len(candidate))
+        n = len(observations)
+        out[candidate] = {
+            "status": "SCORED" if n >= 10 else "INSUFFICIENT_DATA",
+            "n": n,
+            "active_n": len(active),
+            "coverage": len(active) / n if n else 0.0,
+            "hits": wins,
+            "hit_rate_all": wins / n if n else None,
+            "hit_rate_active": wins / len(active) if active else None,
+            "recorded_gross_return_sum": sum(row["net"] + row["friction"] for row in active),
+            "recorded_net_return_sum": sum(net_returns),
+            "mean_net_return_per_active": mean(net_returns) if net_returns else None,
+            "max_drawdown": _max_drawdown(net_returns),
+            "block_bootstrap_95ci_mean_net": ci,
+            "bootstrap_status": "AVAILABLE" if ci is not None else "INSUFFICIENT_DATA_FOR_BLOCK_CI",
+            "fresh_rows": sum(row["freshness_status"] == "FRESH" for row in observations),
+            "warning": "Small candidate samples are descriptive only; no strategy edge is established.",
+        }
+    return {"status": "SCORED" if out else "INSUFFICIENT_DATA", "candidates": out}
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
