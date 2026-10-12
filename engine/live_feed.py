@@ -101,61 +101,79 @@ def closed_1m_rows(symbol="EURUSD",now=None):
 
 def aligned_closed_1m_series(now=None,limit=120):
     now=now or datetime.now(timezone.utc)
-    # Check primary-feed freshness before spending time fetching auxiliary feeds.
+    # Validate the primary stream first; no auxiliary source can compensate
+    # for an unusable EURUSD feature window.
     try:
-        master=closed_1m_rows("EURUSD",now)
+        raw_master=closed_1m_rows("EURUSD",now)
     except Exception as exc:
         if isinstance(exc, HTTPError):
             detail=f"HTTPError:status={exc.code}:reason={exc.reason}"
         else:
             detail=f"{type(exc).__name__}:{exc}"
         raise RuntimeError(f"EURUSD_ONE_MINUTE_FEED_UNAVAILABLE:{detail}") from exc
-    if not master:
+    if not raw_master:
         raise RuntimeError("EURUSD_ONE_MINUTE_FEED_UNAVAILABLE")
-    master_total=len(master)
-    master_first=master[0][0]
-    master_last=master[-1][0]
-    intervals=[(master[i][0]-master[i-1][0]).total_seconds() for i in range(1,len(master))]
+    master_total=len(raw_master)
+    master_first=raw_master[0][0]
+    master_last=raw_master[-1][0]
+    intervals=[(raw_master[i][0]-raw_master[i-1][0]).total_seconds() for i in range(1,len(raw_master))]
     median_interval=median(intervals) if intervals else None
     non_minute_gaps=sum(delta!=60.0 for delta in intervals)
     largest_gap=max(intervals) if intervals else None
-    latest_close=master[-1][0]+timedelta(minutes=1)
+    latest_close=master_last+timedelta(minutes=1)
     lag=(now-latest_close).total_seconds()
     if lag>90:
         raise RuntimeError(f"STALE_EURUSD_FEED:{lag:.1f}s")
-    series={"EURUSD":master}
+
+    start=len(raw_master)-1
+    while start>0 and raw_master[start][0]-raw_master[start-1][0]==timedelta(minutes=1):
+        start-=1
+    master=raw_master[start:][-limit:]
+    if len(master)<30:
+        raise RuntimeError(
+            "INSUFFICIENT_CONTIGUOUS_EURUSD_CANDLES:"
+            f"{len(master)}:master_rows={master_total}:first={master_first.isoformat()}:"
+            f"last={master_last.isoformat()}:latest_lag_seconds={lag:.1f}:"
+            f"median_interval_seconds={median_interval}:non_minute_gaps={non_minute_gaps}:"
+            f"largest_gap_seconds={largest_gap}:auxiliary_rows=NOT_FETCHED_PRIMARY_GAP"
+        )
+    master_times=[row[0] for row in master]
+    master_prices=[row[1] for row in master]
+    data={"EURUSD":master_prices}
+    available_lengths={}
+
+    # Align each auxiliary stream independently. One missing symbol must not
+    # suppress valid evidence from the other symbols.
     for symbol in SYMBOLS:
         if symbol=="EURUSD":
             continue
         try:
-            series[symbol]=closed_1m_rows(symbol,now)
+            aux_rows=closed_1m_rows(symbol,now)
         except Exception:
-            series[symbol]=[]
-    # Cross-asset context must be nearly contemporaneous with the EURUSD
-    # one-minute candle. If an auxiliary feed is stale, fall back to EURUSD-only.
-    aligned,times=_align_asof(
-        master,series,max_age=timedelta(minutes=2),limit=limit
-    )
-    aligned,times=_latest_contiguous(aligned,times,step=timedelta(minutes=1))
-    if len(times)>=30 and times and times[-1]==master[-1][0] and all(len(aligned.get(k,[]))==len(times) for k in SYMBOLS):
-        return {k:[row[1] for row in aligned[k]] for k in aligned},times
-
-    # Explicit EURUSD-only fallback: no stale or fabricated cross-asset values.
-    start=len(master)-1
-    while start>0 and master[start][0]-master[start-1][0]==timedelta(minutes=1):
-        start-=1
-    master=master[start:][-limit:]
-    times=[row[0] for row in master]
-    if len(times)<30:
-        aux_counts={symbol:len(rows) for symbol,rows in series.items() if symbol!="EURUSD"}
-        raise RuntimeError(
-            "INSUFFICIENT_CONTIGUOUS_EURUSD_CANDLES:"
-            f"{len(times)}:master_rows={master_total}:first={master_first.isoformat()}:"
-            f"last={master_last.isoformat()}:latest_lag_seconds={lag:.1f}:"
-            f"median_interval_seconds={median_interval}:non_minute_gaps={non_minute_gaps}:"
-            f"largest_gap_seconds={largest_gap}:auxiliary_rows={aux_counts}"
+            aux_rows=[]
+        if not aux_rows:
+            continue
+        aligned,aux_times=_align_asof(
+            master,{symbol:aux_rows},max_age=timedelta(minutes=2),limit=limit
         )
-    return {"EURUSD":[row[1] for row in master]},times
+        aligned,aux_times=_latest_contiguous(
+            aligned,aux_times,step=timedelta(minutes=1)
+        )
+        if len(aux_times)<30 or not aux_times or aux_times[-1]!=master_times[-1]:
+            continue
+        mapping={ts:row[1] for ts,row in zip(aux_times,aligned[symbol])}
+        available_lengths[symbol]=len(aux_times)
+        data[symbol]=mapping
+
+    common_len=min([len(master),*available_lengths.values()]) if available_lengths else len(master)
+    times=master_times[-common_len:]
+    data={symbol:(values[-common_len:] if symbol=="EURUSD" else [values[ts] for ts in times])
+          for symbol,values in data.items()}
+    print("CROSS_ASSET_FEED_COVERAGE:"+json.dumps(
+        {symbol:len(values) for symbol,values in data.items()},sort_keys=True
+    ))
+    return data,times
+
 
 def aligned_closed_1m_ohlc(now=None,limit=120):
     now=now or datetime.now(timezone.utc)
