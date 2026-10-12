@@ -360,7 +360,7 @@ def settle(rows,times,prices,state,code_commit):
         if candidates: update_algorithm_stats(state,candidates,actual)
         state["resolved"]+=1; state["correct"]+=int(hit); state["errors"].append(error); state["errors"]=state["errors"][-500:]
         if row.get("decision_evidence"):
-            persist_settlement(row, actual, resolved_at)
+            persist_settlement(row, actual, resolved_at, evidence_dir=PRED_PATH.parent)
         row.update(actual_return=actual,error=error,hit=hit,resolved_at=resolved_at,status="RESOLVED")
         changed=True
     return changed
@@ -667,11 +667,11 @@ def cycle():
           "provider":"Yahoo","source_candle_ts":iso(source_candle_ts),"observed_at":iso(observed_at),
           "data_age_seconds":data_age_seconds,"freshness_limit_seconds":90.0,"freshness_status":"FRESH",
           "engine":f"DEEP-OHLC-PATTERNS+ALGORITHM-FACTORY+{signal.name}+NEWS+TOP50-24H+DATACENTER-POWER+ONLINE-CALIBRATION"}
-        persist_issue(row, code_commit)
+        persist_issue(row, code_commit, evidence_dir=PRED_PATH.parent)
         predictions.append(row); state["last_prediction"]=iso(latest_ts); state["context_cycles"]=state.get("context_cycles",0)+1; state["last_external_context"]=context; changed=True; issued=True; print(json.dumps(row,sort_keys=True))
     state["last_cycle_at"]=iso(datetime.now(timezone.utc)); state["accuracy"]=state["correct"]/state["resolved"] if state["resolved"] else None
     save_predictions(predictions); save_state(state)
-    print("LIVE_EVIDENCE_AUDIT:"+json.dumps(audit_stores(),sort_keys=True))
+    print("LIVE_EVIDENCE_AUDIT:"+json.dumps(audit_stores(evidence_dir=PRED_PATH.parent),sort_keys=True))
     if changed: git_commit()
     return "FORECAST" if issued else "NO_NEW_FORECAST"
 
