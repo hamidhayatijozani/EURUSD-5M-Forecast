@@ -29,6 +29,7 @@ def test_forward_evaluation_excludes_pre_activation_rows(tmp_path, monkeypatch):
         "position":1,"actual_return":0.0003
     }
     result=evaluate([old_row],code_commit="test")
-    assert result["execution"]["rows_in_hash_chain"] == 0
+    assert result["execution"]["rows_in_hash_chain"] == 1
+    assert result["execution"]["eligible_fresh_rows"] == 0
     assert result["metrics"]["LIVE1M_DOLLAR_CONSENSUS_3M"]["resolved_observations"] == 0
     assert result["verdict"] == "INSUFFICIENT_DATA"
