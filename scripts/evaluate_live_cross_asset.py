@@ -1,5 +1,5 @@
 """Evaluate the forward-only cross-asset paper ledger; never execute orders."""
-import json
+import json, os
 from pathlib import Path
 from claimlab.statistics import StatisticalEngine
 from scripts.live_minute_loop import _read_cross_asset_ledger, CROSS_ASSET_CONTRACT_VERSION
@@ -88,7 +88,7 @@ def evaluate(rows,code_commit="LOCAL"):
 
 def main():
     rows,_=_read_cross_asset_ledger()
-    result=evaluate(rows)
+    result=evaluate(rows,code_commit=os.getenv("GITHUB_SHA","LOCAL"))
     OUTPUT.parent.mkdir(parents=True,exist_ok=True)
     OUTPUT.write_text(json.dumps(result,indent=2,sort_keys=True),encoding="utf-8")
     print(json.dumps(result,sort_keys=True))
