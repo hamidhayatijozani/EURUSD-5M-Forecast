@@ -131,3 +131,48 @@ def test_global_audit_reports_parity_across_jsonl_sqlite_and_settlements(tmp_pat
     assert report["jsonl_predictions"] == report["sqlite_predictions"] == 1
     assert report["sqlite_snapshots"] == 1
     assert report["sqlite_settlements"] == report["jsonl_settlements"] == 1
+
+
+
+def test_source_unavailable_holds_without_creating_prediction(tmp_path, monkeypatch):
+    from scripts import live_minute_loop as loop
+
+    monkeypatch.setattr(loop, "STATE_PATH", tmp_path / "live_state.json")
+    monkeypatch.setattr(loop, "PRED_PATH", tmp_path / "live_predictions.jsonl")
+    monkeypatch.setattr(loop, "CLAIM_LEDGER_PATH", tmp_path / "claimlab.jsonl")
+    monkeypatch.setattr(loop, "CROSS_ASSET_LEDGER_PATH", tmp_path / "cross_asset.jsonl")
+    monkeypatch.setattr(loop, "closed_1m_rows", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        loop, "aligned_closed_1m_series",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("EURUSD_ONE_MINUTE_FEED_UNAVAILABLE")),
+    )
+    monkeypatch.setattr(loop, "git_commit", lambda: None)
+
+    from engine import market_session
+    monkeypatch.setattr(market_session, "expected_weekend_closure", lambda now: False)
+
+    assert loop.cycle() == "HOLD"
+    assert not (tmp_path / "live_predictions.jsonl").exists()
+
+
+def test_market_closed_contract_records_hold_without_fabricating_forecast(tmp_path, monkeypatch):
+    from scripts import live_minute_loop as loop
+    from engine import market_session
+
+    monkeypatch.setattr(loop, "STATE_PATH", tmp_path / "live_state.json")
+    monkeypatch.setattr(loop, "PRED_PATH", tmp_path / "live_predictions.jsonl")
+    monkeypatch.setattr(loop, "CLAIM_LEDGER_PATH", tmp_path / "claimlab.jsonl")
+    monkeypatch.setattr(loop, "CROSS_ASSET_LEDGER_PATH", tmp_path / "cross_asset.jsonl")
+    monkeypatch.setattr(loop, "closed_1m_rows", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        loop, "aligned_closed_1m_series",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("EURUSD_ONE_MINUTE_FEED_UNAVAILABLE")),
+    )
+    monkeypatch.setattr(loop, "git_commit", lambda: None)
+    monkeypatch.setattr(market_session, "expected_weekend_closure", lambda now: True)
+
+    assert loop.cycle() == "MARKET_CLOSED"
+    state = json.loads((tmp_path / "live_state.json").read_text(encoding="utf-8"))
+    assert state["market_status"]["status"] == "MARKET_CLOSED"
+    assert state["market_status"]["new_forecast_emitted"] is False
+    assert not (tmp_path / "live_predictions.jsonl").exists()
