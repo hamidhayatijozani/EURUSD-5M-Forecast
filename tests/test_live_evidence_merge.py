@@ -107,3 +107,21 @@ def test_cross_asset_merge_rechains_and_deduplicates(tmp_path, monkeypatch):
     assert len(rows) == 2
     assert len({row["observation_id"] for row in rows}) == 2
     assert rows[-1]["record_hash"] == last_hash
+
+
+def test_prediction_merge_preserves_legacy_rows_without_ids():
+    legacy={"status":"QUARANTINED","prediction":0.0,"reason":"legacy schema"}
+    current={
+        "prediction_id":"p1","prediction_ts":"2026-10-12T12:00:00+00:00",
+        "target_at":"2026-10-12T12:05:00+00:00","prediction":0.0001,
+        "baseline_prediction":0.0,"source_candle_ts":"2026-10-12T11:59:00+00:00",
+        "feature_cutoff_at":"2026-10-12T12:00:00+00:00","config_hash":"cfg",
+        "status":"PENDING"
+    }
+    merged=loop._merge_prediction_texts(
+        json.dumps(legacy)+"\n"+json.dumps(current),
+        json.dumps(legacy)
+    )
+    assert len(merged)==2
+    assert sum("prediction_id" not in row for row in merged)==1
+    assert any(row.get("prediction_id")=="p1" for row in merged)
