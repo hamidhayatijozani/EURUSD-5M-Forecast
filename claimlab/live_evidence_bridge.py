@@ -13,6 +13,17 @@ SETTLEMENTS_JSONL = Path("research/live_decision_settlements.jsonl")
 SQLITE_PATH = Path("research/live_evidence.db")
 
 
+def _paths(evidence_dir=None):
+    if evidence_dir is None:
+        return EVIDENCE_JSONL, SETTLEMENTS_JSONL, SQLITE_PATH
+    base = Path(evidence_dir)
+    return (
+        base / "live_decision_evidence.jsonl",
+        base / "live_decision_settlements.jsonl",
+        base / "live_evidence.db",
+    )
+
+
 def _read_jsonl(path):
     if not path.exists():
         return []
@@ -33,7 +44,8 @@ def _append_once(path, row, identity="prediction_id"):
     return True
 
 
-def persist_issue(row, code_commit):
+def persist_issue(row, code_commit, evidence_dir=None):
+    evidence_jsonl, settlements_jsonl, sqlite_path = _paths(evidence_dir)
     snapshot = row.get("decision_evidence")
     if not isinstance(snapshot, dict):
         raise ValueError("LIVE_DECISION_SNAPSHOT_REQUIRED")
@@ -59,8 +71,8 @@ def persist_issue(row, code_commit):
         direction=row["direction"],
         status="PENDING",
     )
-    ledger = JsonLedger(EVIDENCE_JSONL)
-    db = LedgerDB(SQLITE_PATH)
+    ledger = JsonLedger(evidence_jsonl)
+    db = LedgerDB(sqlite_path)
     try:
         existing = db.get_prediction(record["prediction_id"])
         if existing is None:
@@ -79,13 +91,14 @@ def persist_issue(row, code_commit):
             raise RuntimeError("LIVE_EVIDENCE_JSONL_PREDICTION_CONFLICT")
         if not ledger.verify():
             raise RuntimeError("LIVE_EVIDENCE_JSONL_CHAIN_INVALID")
-        audit_stores(db=db, ledger=ledger)
+        audit_stores(db=db, ledger=ledger, evidence_dir=evidence_dir)
     finally:
         db.close()
     return record["evidence_hash"]
 
 
-def persist_settlement(row, actual_return, resolved_at):
+def persist_settlement(row, actual_return, resolved_at, evidence_dir=None):
+    evidence_jsonl, settlements_jsonl, sqlite_path = _paths(evidence_dir)
     pid = row["prediction_id"]
     settlement = {
         "prediction_id": pid,
@@ -99,7 +112,7 @@ def persist_settlement(row, actual_return, resolved_at):
         "source_candle_ts": row["source_candle_ts"],
         "decision_evidence_sha256": row["decision_evidence_sha256"],
     }
-    db = LedgerDB(SQLITE_PATH)
+    db = LedgerDB(sqlite_path)
     try:
         if db.get_prediction(pid) is None:
             raise RuntimeError("LIVE_EVIDENCE_SETTLEMENT_WITHOUT_ISSUANCE")
@@ -112,15 +125,16 @@ def persist_settlement(row, actual_return, resolved_at):
             raise RuntimeError("LIVE_EVIDENCE_SETTLEMENT_CONFLICT")
     finally:
         db.close()
-    _append_once(SETTLEMENTS_JSONL, settlement)
-    audit_stores()
+    _append_once(settlements_jsonl, settlement)
+    audit_stores(evidence_dir=evidence_dir)
 
 
-def audit_stores(db=None, ledger=None):
+def audit_stores(db=None, ledger=None, evidence_dir=None):
+    evidence_jsonl, settlements_jsonl, sqlite_path = _paths(evidence_dir)
     own_db = db is None
     own_ledger = ledger is None
-    db = db or LedgerDB(SQLITE_PATH)
-    ledger = ledger or JsonLedger(EVIDENCE_JSONL)
+    db = db or LedgerDB(sqlite_path)
+    ledger = ledger or JsonLedger(evidence_jsonl)
     try:
         if not ledger.verify():
             raise RuntimeError("LIVE_EVIDENCE_JSONL_CHAIN_INVALID")
@@ -138,7 +152,7 @@ def audit_stores(db=None, ledger=None):
                 raise RuntimeError(f"LIVE_EVIDENCE_HASH_PARITY_FAILURE:{pid}")
             if row.get("snapshot_sha256") != snap_by_id[pid]["snapshot_sha256"]:
                 raise RuntimeError(f"LIVE_EVIDENCE_SNAPSHOT_PARITY_FAILURE:{pid}")
-        settlement_rows = _read_jsonl(SETTLEMENTS_JSONL)
+        settlement_rows = _read_jsonl(settlements_jsonl)
         settlement_ids = [r.get("prediction_id") for r in settlement_rows]
         db_settlement_ids = [r["prediction_id"] for r in db_settlements]
         if len(set(settlement_ids)) != len(settlement_ids) or set(settlement_ids) != set(db_settlement_ids):
