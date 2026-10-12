@@ -16,9 +16,9 @@ Computed from closed EUR/USD close prices only:
 
 - **pressure**: signed three-bar return normalized by the mean absolute one-bar return in the preceding window.
 - **novelty**: absolute latest one-bar return divided by the mean absolute one-bar return of earlier bars in the window.
-- **tenacity**: absolute net return divided by the sum of absolute one-bar returns in the window; bounded [0, 1] and measures directional path efficiency, not psychological persistence.
+- **tenacity**: fraction of non-zero one-bar returns that agree with the dominant direction over the window; bounded [0, 1] and measures directional consistency, not psychological persistence.
 - **realized_volatility**: root-mean-square one-bar return over the window.
-- **trend_efficiency**: absolute net return divided by total absolute movement over the window; included as an interpretable companion diagnostic, not an independent claim.
+- **trend_efficiency**: absolute cumulative return divided by the sum of absolute one-bar returns; an interpretable path-efficiency diagnostic, not an independent claim.
 
 Zero denominators, non-finite values, non-positive prices, or insufficient observations must fail closed with a clear exception. Feature computation must not fetch data or infer timestamps. Callers must pass only closed candles available at forecast issuance time.
 
