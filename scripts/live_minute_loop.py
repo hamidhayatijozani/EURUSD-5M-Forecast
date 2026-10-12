@@ -14,6 +14,7 @@ from claimlab.ledger import Ledger
 from claimlab.registry import registry_hash
 from claimlab.resolver import resolve
 from claimlab.schema import Observation
+from claimlab.live_evidence_bridge import (persist_issue, persist_settlement, audit_stores, EVIDENCE_JSONL, SETTLEMENTS_JSONL, SQLITE_PATH)
 
 STATE_PATH=Path("research/live_state.json")
 PRED_PATH=Path("research/live_predictions.jsonl")
@@ -332,7 +333,7 @@ def settle(rows,times,prices,state,code_commit):
         obs=resolve({
           "schema_version":"claimlab.observation.v1","prediction_id":row["prediction_id"],
           "issued_at":row["prediction_ts"],"target_at":row["target_at"],
-          "feature_cutoff_at":row["prediction_ts"],
+          "feature_cutoff_at":row.get("decision_evidence",{}).get("feature_cutoff_at",row["prediction_ts"]),
           "symbol":"EURUSD","horizon_seconds":HORIZON*60,"prediction":predicted,"code_commit":code_commit,
           "config_hash": row["config_hash"],
           "claim_registry_hash": registry_hash(),
@@ -358,6 +359,8 @@ def settle(rows,times,prices,state,code_commit):
         candidates=[Candidate(x["name"],x["score"],x["predicted_return"]) for x in row.get("algorithms",[])]
         if candidates: update_algorithm_stats(state,candidates,actual)
         state["resolved"]+=1; state["correct"]+=int(hit); state["errors"].append(error); state["errors"]=state["errors"][-500:]
+        if row.get("decision_evidence"):
+            persist_settlement(row, actual, resolved_at)
         row.update(actual_return=actual,error=error,hit=hit,resolved_at=resolved_at,status="RESOLVED")
         changed=True
     return changed
@@ -541,7 +544,7 @@ def git_commit():
     if not os.environ.get("GITHUB_ACTIONS"): return
     subprocess.run(["git","config","user.name","github-actions[bot]"],check=False)
     subprocess.run(["git","config","user.email","41898282+users.noreply.github.com"],check=False)
-    evidence_paths=[p for p in (STATE_PATH,PRED_PATH,CLAIM_LEDGER_PATH,CROSS_ASSET_LEDGER_PATH) if p.exists()]
+    evidence_paths=[p for p in (STATE_PATH,PRED_PATH,CLAIM_LEDGER_PATH,CROSS_ASSET_LEDGER_PATH,EVIDENCE_JSONL,SETTLEMENTS_JSONL,SQLITE_PATH) if p.exists()]
     if not evidence_paths:return
     subprocess.run(["git","add",*[str(p) for p in evidence_paths]],check=True)
     if subprocess.run(["git","diff","--cached","--quiet"]).returncode==0:return
@@ -659,7 +662,7 @@ def cycle():
             source_candle_ts=source_candle_ts,
             feature_cutoff_at=source_candle_ts,
             issued_at=issued_at,
-            target_ts=target_bar_open,
+            target_ts=target_at,
             config_hash=config_hash,
             model_components={
                 "signal_name":signal.name,
@@ -689,6 +692,7 @@ def cycle():
           "provider":"Yahoo","source_candle_ts":iso(source_candle_ts),"observed_at":iso(observed_at),
           "data_age_seconds":data_age_seconds,"freshness_limit_seconds":90.0,"freshness_status":"FRESH",
           "engine":f"DEEP-OHLC-PATTERNS+ALGORITHM-FACTORY+{signal.name}+NEWS+TOP50-24H+DATACENTER-POWER+ONLINE-CALIBRATION"}
+        persist_issue(row, code_commit)
         predictions.append(row); state["last_prediction"]=iso(latest_ts); state["context_cycles"]=state.get("context_cycles",0)+1; state["last_external_context"]=context; changed=True; issued=True; print(json.dumps(row,sort_keys=True))
     state["last_cycle_at"]=iso(datetime.now(timezone.utc)); state["accuracy"]=state["correct"]/state["resolved"] if state["resolved"] else None
     save_predictions(predictions); save_state(state)
