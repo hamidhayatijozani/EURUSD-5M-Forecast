@@ -557,10 +557,16 @@ def cycle():
 def main():
     cycles=int(os.environ.get("LIVE_CYCLES","5"))
     successful=0
+    forecasts=0
+    holds=0
+    no_new_forecast=0
     failures=[]
     for i in range(cycles):
         try:
-            cycle()
+            outcome=cycle()
+            if outcome=="FORECAST": forecasts+=1
+            elif outcome=="HOLD": holds+=1
+            else: no_new_forecast+=1
             successful+=1
         except Exception as exc:
             # A stale feed during the known FX weekend closure is an expected
@@ -586,11 +592,13 @@ def main():
                 save_state(state)
                 print("MARKET_CLOSED_EXPECTED: no new forecast emitted; last valid evidence preserved")
                 successful += 1
+                holds += 1
             else:
                 failures.append(reason)
                 print(f"LIVE_CYCLE_ERROR: {reason}")
         if i+1<cycles:
             time.sleep(SLEEP_SECONDS)
+    print(f"LIVE_CYCLE_SUMMARY: cycles={cycles} forecasts={forecasts} holds={holds} no_new_forecast={no_new_forecast} errors={len(failures)}")
     if failures:
         raise SystemExit("LIVE_CYCLE_ERRORS: " + " | ".join(failures[-5:]))
     if successful==0:
