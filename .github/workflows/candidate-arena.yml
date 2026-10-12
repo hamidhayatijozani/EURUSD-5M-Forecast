@@ -6,6 +6,7 @@ on:
     paths:
       - "scripts/claimlab_candidate_arena.py"
       - "research/CANDIDATE_ARENA_PREREGISTRATION.json"
+      - "research/RECENT_OOS_PREREGISTRATION.json"
       - "tests/test_candidate_arena.py"
       - ".github/workflows/candidate-arena.yml"
 
