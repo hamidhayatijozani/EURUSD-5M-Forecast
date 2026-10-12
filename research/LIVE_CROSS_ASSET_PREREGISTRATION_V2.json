@@ -1,0 +1,43 @@
+{
+  "schema": "claimlab.live_cross_asset_preregistration.v2",
+  "experiment_id": "EURUSD-LIVE1M-GBPUSD-USDJPY-5M-TARGET-002",
+  "status": "PRE_REGISTERED_FORWARD_PAPER",
+  "activation_time": "2026-10-12T01:50:00Z",
+  "contract_version": "live-1m-gbpusd-usdjpy-to-5m-target-v2",
+  "input_interval": "1 minute closed candles",
+  "target_horizon_minutes": 5,
+  "primary_cost": 0.00002,
+  "cost_interpretation": "Assumed 0.2-pip friction, not broker-verified",
+  "candidate_ids": [
+    "LIVE1M2_NO_TRADE",
+    "LIVE1M2_USDJPY_INVERSE_3M",
+    "LIVE1M2_GBPUSD_MOMENTUM_3M",
+    "LIVE1M2_GBPUSD_USDJPY_CONSENSUS_3M",
+    "LIVE1M2_EURUSD_MOMENTUM_CONFIRMED_2SOURCE",
+    "LIVE1M2_EUR_GBP_DIVERGENCE_Z15",
+    "LIVE1M2_EURUSD_CATCHUP_2SOURCE"
+  ],
+  "signal_definitions": {
+    "LIVE1M2_NO_TRADE": "Zero position and zero friction, control",
+    "LIVE1M2_USDJPY_INVERSE_3M": "Position opposite to the sum of the last three closed one-minute USDJPY returns",
+    "LIVE1M2_GBPUSD_MOMENTUM_3M": "Position in the sign of the sum of the last three closed one-minute GBPUSD returns",
+    "LIVE1M2_GBPUSD_USDJPY_CONSENSUS_3M": "Trade only when inverse USDJPY and positive GBPUSD return votes agree; otherwise flat",
+    "LIVE1M2_EURUSD_MOMENTUM_CONFIRMED_2SOURCE": "Take EURUSD three-minute momentum only when the two-source dollar-pressure consensus agrees",
+    "LIVE1M2_EUR_GBP_DIVERGENCE_Z15": "Contrarian EURUSD-minus-GBPUSD relative-return z-score using a trailing 24 one-minute-return window; threshold 1.5",
+    "LIVE1M2_EURUSD_CATCHUP_2SOURCE": "Trade with two-source consensus only when EURGBP divergence is extreme and implies catch-up"
+  },
+  "inference_plan": {
+    "minimum_resolved_observations": 1000,
+    "minimum_trades_per_candidate": 200,
+    "block_size_bars": 5,
+    "bootstrap_resamples": 2000,
+    "multiple_testing": "Benjamini-Hochberg across the seven frozen v2 candidates",
+    "required_survival": "positive net mean after assumed friction, 95% block-bootstrap lower bound above zero, BH-adjusted p below 0.05, and at least 200 trades",
+    "cost_sensitivity": [
+      0.00002,
+      0.00005,
+      0.0001
+    ]
+  },
+  "scientific_boundary": "Separate forward family. No DXY input, no backfilled predictions, no live broker orders, and no profitability claim."
+}
