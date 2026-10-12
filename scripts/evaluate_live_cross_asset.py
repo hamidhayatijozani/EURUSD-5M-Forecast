@@ -1,5 +1,6 @@
 """Evaluate the forward-only cross-asset paper ledger; never execute orders."""
 import json, os
+from datetime import datetime
 from pathlib import Path
 from claimlab.statistics import StatisticalEngine
 from scripts.live_minute_loop import _read_cross_asset_ledger, CROSS_ASSET_CONTRACT_VERSION
@@ -15,8 +16,10 @@ BLOCK_SIZE=5
 
 def evaluate(rows,code_commit="LOCAL"):
     registration=json.loads(REGISTRATION.read_text(encoding="utf-8"))
+    activation=datetime.fromisoformat(registration["activation_time"].replace("Z","+00:00"))
     rows=[r for r in rows if r.get("contract_version")==CROSS_ASSET_CONTRACT_VERSION
-          and r.get("freshness_status")=="FRESH"]
+          and r.get("freshness_status")=="FRESH"
+          and datetime.fromisoformat(r["issued_at"].replace("Z","+00:00"))>=activation]
     candidates=registration["candidate_ids"]
     metrics={}; p_values=[]
     for index,candidate in enumerate(candidates):
