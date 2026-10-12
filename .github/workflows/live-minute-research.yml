@@ -32,6 +32,9 @@ jobs:
           set -o pipefail
           mkdir -p research
           PYTHONPATH=. LIVE_CYCLES=5 python scripts/live_minute_loop.py 2>&1 | tee research/live_minute_run.log
+      - name: evaluate forward cross-asset paper ledger
+        if: always()
+        run: PYTHONPATH=. python scripts/evaluate_live_cross_asset.py
       - name: preserve live diagnostics even when forecasting fails
         if: always()
         uses: actions/upload-artifact@v4
@@ -45,3 +48,4 @@ jobs:
             research/live_predictions.jsonl
             research/claimlab_live_observations.jsonl
             research/cross_asset_live_observations.jsonl
+            evidence/cross-asset-forward-evaluation.json
