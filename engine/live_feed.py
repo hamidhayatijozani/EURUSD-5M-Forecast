@@ -1,4 +1,4 @@
-"""Yahoo research feed adapter with strict closed-candle information lock."""
+"""Multi-provider feed adapter with strict closed-candle information lock."""
 import json
 from datetime import datetime,timedelta,timezone
 from statistics import median
@@ -10,9 +10,11 @@ BASE="https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=5m&range=1d"
 BASE_1M="https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1m&range=1d"
 
 def _fetch(symbol,base):
-    req=Request(base.format(SYMBOLS.get(symbol,symbol)),headers={"User-Agent":"EURUSD-5M-Forecast/3.0"})
-    with urlopen(req,timeout=5) as response: payload=json.load(response)
-    return payload["chart"]["result"][0]
+    # Provider failover is centralized so every provider shares the same
+    # closed-candle, timestamp-alignment, and freshness gates below.
+    from engine.market_providers import fetch_chart_result
+    interval = "1m" if base == BASE_1M else "5m"
+    return fetch_chart_result(symbol, interval, SYMBOLS.get(symbol, symbol))
 
 def fetch_5m_closes(symbol="EURUSD"):
     r=_fetch(symbol,BASE)

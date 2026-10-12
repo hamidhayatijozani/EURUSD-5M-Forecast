@@ -9,6 +9,7 @@ from engine.experiments import combined, pst_signal
 from engine.context import collect_external_context
 from engine.forecast import forecast
 from engine.live_feed import aligned_closed_1m_series, aligned_closed_1m_ohlc, closed_1m_rows
+from engine.market_providers import LAST_PROVIDER_BY_SYMBOL
 from claimlab.ledger import Ledger
 from claimlab.registry import registry_hash
 from claimlab.resolver import resolve
@@ -664,7 +665,7 @@ def cycle():
           "cross_asset_contract_version":CROSS_ASSET_CONTRACT_VERSION,"cross_asset_candidates":cross_candidates,"cross_asset_status":cross_status,
           "cross_asset_available_symbols":sorted(k for k in series if k!="EURUSD"),
           "cross_asset_contract_version_v2":CROSS_ASSET_CONTRACT_VERSION_V2,"cross_asset_candidates_v2":cross_candidates_v2,"cross_asset_status_v2":cross_status_v2,
-          "provider":"Yahoo","source_candle_ts":iso(source_candle_ts),"observed_at":iso(observed_at),
+          "provider":LAST_PROVIDER_BY_SYMBOL.get("EURUSD","unknown"),"provider_by_symbol":dict(LAST_PROVIDER_BY_SYMBOL),"source_candle_ts":iso(source_candle_ts),"observed_at":iso(observed_at),
           "data_age_seconds":data_age_seconds,"freshness_limit_seconds":90.0,"freshness_status":"FRESH",
           "engine":f"DEEP-OHLC-PATTERNS+ALGORITHM-FACTORY+{signal.name}+NEWS+TOP50-24H+DATACENTER-POWER+ONLINE-CALIBRATION"}
         persist_issue(row, code_commit, evidence_dir=PRED_PATH.parent)

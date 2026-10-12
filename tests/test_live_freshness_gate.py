@@ -5,7 +5,7 @@ the network boundary (``fetch_1m_ohlc``), external-context collection, the clock
 and the evidence file paths. Written with ``unittest`` so they run under the
 repo's pytest CI as well as under plain ``python -m unittest``.
 
-Convention under test: Yahoo labels a 1-minute candle by its OPEN time. Data age is
+Convention under test: Yahoo labels a 1-minute candle by its OPEN time. Mocked network boundaries do not establish which provider was used, so provider evidence must remain UNKNOWN in those tests. Data age is
 the time since the candle CLOSED (open + 1 minute) and the contract limit is 90 s.
 """
 import contextlib
@@ -19,6 +19,7 @@ from unittest import mock
 from urllib.error import HTTPError
 
 import engine.live_feed as feed
+import engine.market_providers as providers
 import scripts.live_minute_loop as loop
 
 LIMIT_SECONDS = 90.0
@@ -67,6 +68,7 @@ def run_cycle(age_since_close, per_fetch_latency=0.0):
 
     with tempfile.TemporaryDirectory() as tmp, \
             mock.patch.dict(os.environ), \
+            mock.patch.dict(providers.LAST_PROVIDER_BY_SYMBOL, {}, clear=True), \
             mock.patch.object(feed, "fetch_1m_ohlc", fake_fetch), \
             mock.patch.object(loop, "datetime", _fake_datetime(clock)), \
             mock.patch.object(loop, "collect_external_context",
@@ -155,7 +157,7 @@ class FreshnessGateTests(unittest.TestCase):
         # Independent oracle: age = observed_at - (candle open + 1 minute).
         expected = (observed - (opened + timedelta(minutes=1))).total_seconds()
         self.assertAlmostEqual(row["data_age_seconds"], expected, places=6)
-        self.assertEqual(row["provider"], "Yahoo")
+        self.assertEqual(row["provider"], "unknown")
         self.assertEqual(row["freshness_limit_seconds"], LIMIT_SECONDS)
         self.assertEqual(row["freshness_status"], "FRESH")
         self.assertLessEqual(row["data_age_seconds"], row["freshness_limit_seconds"])
