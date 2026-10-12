@@ -129,7 +129,7 @@ def aligned_closed_1m_series(now=None,limit=120):
         master,series,max_age=timedelta(minutes=2),limit=limit
     )
     aligned,times=_latest_contiguous(aligned,times,step=timedelta(minutes=1))
-    if len(times)>=30 and all(len(aligned.get(k,[]))==len(times) for k in SYMBOLS):
+    if len(times)>=30 and times and times[-1]==master[-1][0] and all(len(aligned.get(k,[]))==len(times) for k in SYMBOLS):
         return {k:[row[1] for row in aligned[k]] for k in aligned},times
 
     # Explicit EURUSD-only fallback: no stale or fabricated cross-asset values.
