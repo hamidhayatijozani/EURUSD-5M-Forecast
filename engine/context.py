@@ -13,10 +13,15 @@ POWER_HISTORY_URL = "https://api.electricitymaps.com/v4/total-load/history"
 class ExternalContext:
     news_score: float
     news_volume: float
+    news_status: str
     trader_score: float
     trader_count: int
+    trader_status: str
     power_score: float
     power_status: str
+    directional_sources_available: int
+    context_coverage: float
+    context_degraded: bool
     context_score: float
     sources: tuple
 
@@ -77,6 +82,8 @@ def load_trader_signals(path="research/trader_signals.jsonl", now=None):
 def trader_leaderboard(eurusd_rows, path="research/trader_signals.jsonl", now=None):
     now=now or datetime.now(timezone.utc)
     cutoff=now-timedelta(hours=24)
+    if not Path(path).exists():
+        return {"score":0.0,"count":0,"leaders":[],"status":"NO_SIGNAL_FILE"}
     price_by_ts={ts:price for ts,price in eurusd_rows}
     by={}
     for row in load_trader_signals(path, now):
@@ -106,10 +113,10 @@ def trader_leaderboard(eurusd_rows, path="research/trader_signals.jsonl", now=No
                            "bias":sum(item["signed_error"])/item["n"]})
     ranked.sort(key=lambda x:(x["mae"],-x["n"]))
     top=ranked[:50]
-    if not top: return {"score":0.0,"count":0,"leaders":[]}
+    if not top: return {"score":0.0,"count":0,"leaders":[],"status":"NO_VALIDATED_24H_SIGNALS"}
     weights=[1.0/(x["mae"]+0.00001) for x in top]
     bias=sum(w*x["bias"] for w,x in zip(weights,top))/sum(weights)
-    return {"score":_clip(bias/0.0005),"count":len(top),"leaders":top}
+    return {"score":_clip(bias/0.0005),"count":len(top),"leaders":top,"status":"OK"}
 
 def _power_anomaly(values):
     if len(values)<12: return 0.0
@@ -156,10 +163,16 @@ def fuse_context(news,traders,power):
     # News and observed trader error are directional. Data-center load is a
     # stress/regime feature and is intentionally not treated as direction.
     directional=_clip(0.55*news["score"]+0.45*traders["score"])
-    return ExternalContext(news_score=news["score"],news_volume=news.get("volume",0.0),
-        trader_score=traders["score"],trader_count=traders["count"],
-        power_score=power["score"],power_status=power["status"],
-        context_score=directional,
+    news_status=news.get("status","UNKNOWN")
+    trader_status=traders.get("status","UNKNOWN")
+    power_status=power.get("status","UNKNOWN")
+    available=int(news_status=="OK")+int(trader_status=="OK")
+    return ExternalContext(
+        news_score=news["score"],news_volume=news.get("volume",0.0),news_status=news_status,
+        trader_score=traders["score"],trader_count=traders["count"],trader_status=trader_status,
+        power_score=power["score"],power_status=power_status,
+        directional_sources_available=available,context_coverage=available/2.0,
+        context_degraded=available<2,context_score=directional,
         sources=("GDELT","TRADER_LEADERBOARD_24H","ELECTRICITY_MAPS_DATACENTER_LOAD"))
 
 def collect_external_context(eurusd_rows,now=None):
