@@ -125,3 +125,56 @@ def test_prediction_merge_preserves_legacy_rows_without_ids():
     assert len(merged)==2
     assert sum("prediction_id" not in row for row in merged)==1
     assert any(row.get("prediction_id")=="p1" for row in merged)
+
+
+def _decision_evidence():
+    from engine.forecast_evidence import build_decision_evidence
+    return build_decision_evidence(
+        candle_times=["2026-10-12T11:57:00+00:00", "2026-10-12T11:58:00+00:00", "2026-10-12T11:59:00+00:00"],
+        series={"EURUSD": [1.1, 1.2, 1.3]},
+        ohlc={"EURUSD": [(1.0, 1.2, 0.9, 1.1), (1.1, 1.3, 1.0, 1.2), (1.2, 1.4, 1.1, 1.3)]},
+        source_candle_ts="2026-10-12T11:59:00+00:00",
+        issued_at="2026-10-12T12:00:00+00:00",
+        config_hash="cfg",
+        model_components={"signal_name": "TEST", "adjusted_score": 0.1, "algorithms": []},
+        external_context={},
+    )
+
+
+def test_prediction_merge_rejects_tampered_decision_evidence():
+    evidence = _decision_evidence()
+    evidence["model_components"]["adjusted_score"] = 999
+    row = {
+        "prediction_id": "evidence-tampered",
+        "prediction_ts": "2026-10-12T12:00:00+00:00",
+        "target_at": "2026-10-12T12:05:00+00:00",
+        "prediction": 0.0001,
+        "baseline_prediction": 0.0,
+        "source_candle_ts": "2026-10-12T11:59:00+00:00",
+        "feature_cutoff_at": "2026-10-12T12:00:00+00:00",
+        "config_hash": "cfg",
+        "status": "PENDING",
+        "decision_evidence": evidence,
+        "decision_evidence_sha256": evidence["snapshot_sha256"],
+    }
+    with pytest.raises(RuntimeError, match="EVIDENCE_HASH_INVALID"):
+        loop._merge_prediction_texts(json.dumps(row), "")
+
+
+def test_prediction_merge_rejects_hash_reference_mismatch():
+    evidence = _decision_evidence()
+    row = {
+        "prediction_id": "evidence-ref-mismatch",
+        "prediction_ts": "2026-10-12T12:00:00+00:00",
+        "target_at": "2026-10-12T12:05:00+00:00",
+        "prediction": 0.0001,
+        "baseline_prediction": 0.0,
+        "source_candle_ts": "2026-10-12T11:59:00+00:00",
+        "feature_cutoff_at": "2026-10-12T12:00:00+00:00",
+        "config_hash": "cfg",
+        "status": "PENDING",
+        "decision_evidence": evidence,
+        "decision_evidence_sha256": "0" * 64,
+    }
+    with pytest.raises(RuntimeError, match="HASH_REFERENCE_MISMATCH"):
+        loop._merge_prediction_texts(json.dumps(row), "")
