@@ -83,3 +83,12 @@ def test_cross_asset_report_uses_recorded_net_return_and_marks_small_n():
     assert candidate["active_n"] == 2
     assert abs(candidate["recorded_net_return_sum"] - (-0.00004)) < 1e-12
     assert candidate["status"] == "INSUFFICIENT_DATA"
+
+
+def test_zero_signal_candidate_is_not_reported_as_scored():
+    result = score_signal([(0.0, 0.001)] * 12)
+    assert result["status"] == "NO_ACTIVE_SIGNALS"
+    assert result["active_n"] == 0
+    assert result["coverage"] == 0.0
+    assert result["net_return_sum"] == 0.0
+    assert result["block_bootstrap_95ci_mean_net_per_forecast"] == [0.0, 0.0]
