@@ -123,8 +123,10 @@ def aligned_closed_1m_series(now=None,limit=120):
             series[symbol]=closed_1m_rows(symbol,now)
         except Exception:
             series[symbol]=[]
+    # Cross-asset context must be nearly contemporaneous with the EURUSD
+    # one-minute candle. If an auxiliary feed is stale, fall back to EURUSD-only.
     aligned,times=_align_asof(
-        master,series,max_age=timedelta(minutes=10),limit=limit
+        master,series,max_age=timedelta(minutes=2),limit=limit
     )
     aligned,times=_latest_contiguous(aligned,times,step=timedelta(minutes=1))
     if len(times)>=30 and all(len(aligned.get(k,[]))==len(times) for k in SYMBOLS):
