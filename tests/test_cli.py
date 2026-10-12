@@ -13,9 +13,10 @@ def test_issue_command(tmp_path, capsys):
 
 def test_settle_command(tmp_path, capsys):
     db_path, jsonl = tmp_path/"ledger.db", tmp_path/"ledger.jsonl"
+    settlements = tmp_path/"settlements.jsonl"
     row = sample_record()
-    main(["--jsonl", str(jsonl), "--db", str(db_path), "issue", "--record-json", json.dumps(row)])
-    rc = main(["--jsonl", str(jsonl), "--db", str(db_path), "settle", "--prediction-id", row["prediction_id"],
+    main(["--jsonl", str(jsonl), "--db", str(db_path), "--settlements", str(settlements), "issue", "--record-json", json.dumps(row)])
+    rc = main(["--jsonl", str(jsonl), "--db", str(db_path), "--settlements", str(settlements), "settle", "--prediction-id", row["prediction_id"],
                "--settled-at", "2026-10-12T02:30:01Z", "--settlement-json", '{"actual":0.0001}'])
     assert rc == 0
     assert json.loads(capsys.readouterr().out.splitlines()[-1])["status"] == "RESOLVED"
