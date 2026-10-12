@@ -71,7 +71,7 @@ def evaluate(rows,code_commit="LOCAL"):
             and metric["ci_lower_net_mean"]>0.0
             and reject)
     survivors=[c for c in candidates if metrics[c]["survives_gate"]]
-    enough=any(metrics[c]["resolved_observations"]>=MIN_RESOLVED for c in candidates)
+    enough=any(metrics[c]["resolved_observations"]>=MIN_RESOLVED for c in candidates if c!="LIVE1M_NO_TRADE")
     return {
         "schema":"claimlab.live_cross_asset_evaluation.v1",
         "status":"COMPUTED_FORWARD_PAPER_EVIDENCE" if enough else "INSUFFICIENT_DATA",
