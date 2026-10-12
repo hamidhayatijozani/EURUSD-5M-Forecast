@@ -74,3 +74,23 @@ def test_live_feed_rejects_stale_eurusd_quotes(monkeypatch):
     with pytest.raises(RuntimeError, match="STALE_EURUSD_FEED"):
         lf.aligned_closed_1m_series(now, limit=120)
     assert calls == ["EURUSD"]
+
+
+def test_live_feed_falls_back_when_auxiliary_candles_are_stale(monkeypatch):
+    import engine.live_feed as lf
+    from datetime import timedelta
+
+    now = datetime(2026, 10, 6, 12, 10, 30, tzinfo=timezone.utc)
+    base = now.replace(second=0, microsecond=0)
+    master = [
+        (base - timedelta(minutes=40 - i), 1.1 + i * 0.0001)
+        for i in range(40)
+    ]
+    stale_aux = master[:-4]  # latest auxiliary candle is four minutes behind
+    monkeypatch.setattr(
+        lf, "closed_1m_rows",
+        lambda symbol, when=None: master if symbol == "EURUSD" else stale_aux
+    )
+    data, times = lf.aligned_closed_1m_series(now, limit=120)
+    assert list(data) == ["EURUSD"]
+    assert times[-1] == master[-1][0]
