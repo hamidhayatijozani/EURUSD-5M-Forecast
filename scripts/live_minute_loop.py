@@ -377,10 +377,15 @@ def _merge_prediction_texts(local_text,remote_text):
     for row in _parse_jsonl_text(remote_text)+_parse_jsonl_text(local_text):
         pid=row.get("prediction_id")
         if not pid:
-            raise RuntimeError("LIVE_EVIDENCE_PREDICTION_WITHOUT_ID")
-        existing=merged.get(pid)
+            # Preserve legacy rows without modern IDs by exact-content hash.
+            # They will be quarantined by the live contract gate, not silently lost.
+            digest=hashlib.sha256(json.dumps(row,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+            merged.setdefault(("legacy",digest),row)
+            continue
+        key_id=("id",pid)
+        existing=merged.get(key_id)
         if existing is None:
-            merged[pid]=row
+            merged[key_id]=row
             continue
         for key in core_keys:
             if existing.get(key)!=row.get(key):
@@ -391,13 +396,13 @@ def _merge_prediction_texts(local_text,remote_text):
                 if existing.get(key) is not None and row.get(key) is not None and existing.get(key)!=row.get(key):
                     raise RuntimeError(f"LIVE_EVIDENCE_RESOLUTION_CONFLICT:{pid}:{key}")
         if existing.get("status")!="RESOLVED" and row.get("status")=="RESOLVED":
-            merged[pid]=row
+            merged[key_id]=row
         elif existing.get("status")==row.get("status"):
             old_key=(bool(existing.get("cross_asset_observations_written")),existing.get("resolved_at",""),existing.get("observed_at",""))
             new_key=(bool(row.get("cross_asset_observations_written")),row.get("resolved_at",""),row.get("observed_at",""))
             if new_key>old_key:
-                merged[pid]=row
-    return sorted(merged.values(),key=lambda row:(row.get("prediction_ts",""),row.get("prediction_id","")))
+                merged[key_id]=row
+    return sorted(merged.values(),key=lambda row:(row.get("prediction_ts",""),row.get("prediction_id",""),json.dumps(row,sort_keys=True)))
 
 
 def _merge_claim_ledger_texts(local_text,remote_text):
