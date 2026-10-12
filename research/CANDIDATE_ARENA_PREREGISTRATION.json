@@ -1,0 +1,26 @@
+{
+  "schema": "claimlab.candidate_arena_preregistration.v1",
+  "experiment_id": "EURUSD-M5-CANDIDATE-ARENA-001",
+  "status": "PRE_REGISTERED",
+  "hypothesis": "A small fixed set of transparent momentum, contrarian, volatility-gated, breakout, and wick-reversal rules may improve net returns over a no-trade control on a strictly later chronological test segment.",
+  "primary_metric": "mean net return per test bar after declared 0.2-pip round-trip cost",
+  "primary_cost": 0.00002,
+  "sensitivity_costs": [0.00002, 0.00005, 0.0001],
+  "chronological_split": {"train_fraction": 0.6, "validation_fraction": 0.2, "test_fraction": 0.2},
+  "test_is_used_for_parameter_tuning": false,
+  "candidate_ids": ["NO_TRADE","MOMENTUM_3","CONTRARIAN_3","MOMENTUM_12","CONTRARIAN_12","Z15_MOMENTUM_3","Z15_CONTRARIAN_3","BREAKOUT_12","WICK_REVERSAL_1"],
+  "signal_definitions": {
+    "MOMENTUM_3": "sign of sum of previous 3 closed-bar returns",
+    "CONTRARIAN_3": "opposite sign of sum of previous 3 closed-bar returns",
+    "MOMENTUM_12": "sign of sum of previous 12 closed-bar returns",
+    "CONTRARIAN_12": "opposite sign of sum of previous 12 closed-bar returns",
+    "Z15_MOMENTUM_3": "momentum over 3 bars only when absolute 3-bar return divided by trailing 24-bar standard deviation times sqrt(3) is at least 1.5",
+    "Z15_CONTRARIAN_3": "contrarian version of the same fixed volatility gate",
+    "BREAKOUT_12": "trade only when current closed price breaks the previous 12 bars high or low",
+    "WICK_REVERSAL_1": "fixed long-wick rejection rule using only the just-closed candle",
+    "NO_TRADE": "position zero, cost zero, control"
+  },
+  "inference": {"block_size_bars": 5, "bootstrap_resamples": 1000, "alpha": 0.05, "multiple_testing": "Benjamini-Hochberg across all preregistered candidates", "minimum_test_trades_for_candidate_gate": 200},
+  "verdict_rule": "Candidate survives only if it has at least 200 test trades, the 95% block-bootstrap lower bound of mean net return per test bar is above zero at 0.2 pip, and its BH-corrected test is rejected. No-trade is the control, never a survivor.",
+  "scientific_boundary": "Historical screen only. Any survivor requires a separate frozen live-paper evaluation with fresh data, ledger-backed resolutions, and realistic broker-specific costs before any profitability claim."
+}
