@@ -58,3 +58,10 @@ def test_evidence_tampering_is_detected():
     evidence = build_decision_evidence(**fixture())
     evidence["model_components"]["adjusted_score"] = 999
     assert verify_decision_evidence(evidence) is False
+
+
+def test_ohlc_tuple_rows_are_preserved_as_numeric_rows():
+    args = fixture()
+    args["ohlc"] = {"EURUSD": [(1.0, 1.2, 0.9, 1.1), (1.1, 1.3, 1.0, 1.2), (1.2, 1.4, 1.1, 1.3)]}
+    evidence = build_decision_evidence(**args)
+    assert evidence["eurusd_ohlc_inputs"][0]["values"][-1] == [1.2, 1.4, 1.1, 1.3]
