@@ -92,6 +92,7 @@ def build_cross_asset_observations(series):
                1 if r3["GBPUSD"]>0 else -1 if r3["GBPUSD"]<0 else 0]
         vote_sum=sum(votes)
         consensus=1 if vote_sum>=2 else -1 if vote_sum<=-2 else 0
+        eur_direction=1 if r3["EURUSD"]>0 else -1 if r3["EURUSD"]<0 else 0
         composite=-z["DXY"]-z["USDJPY"]+z["GBPUSD"]
         positions={
             "NO_TRADE":0,
@@ -99,7 +100,7 @@ def build_cross_asset_observations(series):
             "DXY_LEAD_LAG_3":-1 if r3["DXY"]>0 else 1 if r3["DXY"]<0 else 0,
             "CROSS_ASSET_COMPOSITE_Z15":(1 if composite>0 else -1) if abs(composite)>=1.5 else 0,
             "EUR_GBP_DIVERGENCE_CONTRARIAN":(-1 if rel_z>0 else 1) if abs(rel_z)>=1.5 else 0,
-            "EURUSD_MOMENTUM_CONFIRMED":(1 if r3["EURUSD"]>0 else -1) if consensus and (1 if r3["EURUSD"]>0 else -1)==consensus else 0,
+            "EURUSD_MOMENTUM_CONFIRMED":eur_direction if consensus and eur_direction==consensus else 0,
             "EURUSD_CROSS_ASSET_CATCHUP":(1 if consensus>0 else -1) if abs(rel_z)>=1.5 and consensus and ((rel_z<0 and consensus>0) or (rel_z>0 and consensus<0)) else 0,
         }
         output.append({
