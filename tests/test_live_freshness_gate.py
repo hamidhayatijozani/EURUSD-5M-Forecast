@@ -76,9 +76,14 @@ def run_cycle(age_since_close, per_fetch_latency=0.0):
             mock.patch.object(loop, "CLAIM_LEDGER_PATH", Path(tmp) / "ledger.jsonl"):
         os.environ.pop("GITHUB_ACTIONS", None)  # never git-commit from a test
         error = None
+        output = io.StringIO()
         try:
-            with contextlib.redirect_stdout(io.StringIO()):
-                loop.cycle()
+            with contextlib.redirect_stdout(output):
+                outcome = loop.cycle()
+            if outcome == "HOLD":
+                # A data hold is an explicit non-forecast result, not an
+                # exception. Preserve its reason for the existing gate assertions.
+                error = RuntimeError(output.getvalue())
         except Exception as exc:  # noqa: BLE001 - the tests inspect the error
             error = exc
         rows = loop.read_predictions()
