@@ -653,7 +653,9 @@ def cycle():
             external_context=context,
         )
         row={"prediction_id":f"live-eurusd-1m-{latest_ts.strftime('%Y%m%dT%H%M%SZ')}","prediction_ts":iso(issued_at),
-          "target_ts":iso(target_bar_open),"target_at":iso(target_at),\n          "feature_cutoff_at":iso(source_candle_ts),\n          "decision_evidence":decision_evidence,"decision_evidence_sha256":decision_evidence["snapshot_sha256"],
+          "target_ts":iso(target_bar_open),"target_at":iso(target_at),
+          "feature_cutoff_at":iso(source_candle_ts),
+          "decision_evidence":decision_evidence,"decision_evidence_sha256":decision_evidence["snapshot_sha256"],
           "data_contract_version":LIVE_DATA_CONTRACT_VERSION,
           "entry_price":latest_price,"direction":direction,"score":score,"confidence":signal.confidence,"regime":signal.regime,"contradiction":signal.contradiction,
           "predicted_return":predicted_return,"baseline_prediction":baseline_prediction,
