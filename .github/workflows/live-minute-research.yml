@@ -27,6 +27,11 @@ jobs:
       - name: live minute forecast loop
         env:
           ELECTRICITY_MAPS_API_KEY: ${{ secrets.ELECTRICITY_MAPS_API_KEY }}
+          OANDA_API_TOKEN: ${{ secrets.OANDA_API_TOKEN }}
+          OANDA_API_BASE: ${{ vars.OANDA_API_BASE }}
+          OANDA_ENVIRONMENT: ${{ vars.OANDA_ENVIRONMENT }}
+          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
+          LIVE_FEED_PROVIDERS: oanda,twelvedata,yahoo
         shell: bash
         run: |
           set -o pipefail
