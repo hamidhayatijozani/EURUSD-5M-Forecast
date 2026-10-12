@@ -22,3 +22,19 @@ def test_candidate_arena_skips_timestamp_gaps():
     rows=_rows(40); rows[25]["timestamp"]+=timedelta(minutes=5)
     observations=build_observations(rows)
     assert len(observations)<40-24-1
+
+
+def test_recent_oos_filter_excludes_pre_cutoff_forecasts():
+    from datetime import datetime, timezone
+    from scripts.claimlab_candidate_arena import filter_recent_observations
+
+    cutoff = datetime(2026, 9, 25, 21, 0, tzinfo=timezone.utc)
+    rows = [
+        {"issued_at": "2026-09-25T20:55:00+00:00", "positions": {}},
+        {"issued_at": "2026-09-25T21:00:00+00:00", "positions": {}},
+        {"issued_at": "2026-09-25T21:05:00+00:00", "positions": {}},
+    ]
+    kept = filter_recent_observations(rows, cutoff)
+    assert [row["issued_at"] for row in kept] == [
+        "2026-09-25T21:00:00+00:00", "2026-09-25T21:05:00+00:00"
+    ]
