@@ -25,3 +25,29 @@ Issue #36 remains **PENDING** until a later live run records the actual target p
 ## Current external context limitation
 
 The recorded live cycle reports news unavailable (`URLError`), electricity context unavailable (`NO_API_KEY`), and trader leaderboard unavailable (`NO_SIGNAL_FILE`). These sources are not represented as available evidence.
+
+
+## Final acceptance update — 2026-10-12 05:34 UTC
+
+**Issue #36 minimum acceptance: PASS for the first fully auditable live prediction.**
+
+- Merged integration commit: `c4972a1bc1b8cb22e235753058d5c269da77ee1e`.
+- Post-merge live workflow: [run #132](https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/38208321896), conclusion `success`.
+- Full CI: 107 tests passed on the integration PR; the post-merge live workflow's test step also passed.
+- Live cycle summary: `cycles=5 forecasts=4 holds=0 no_new_forecast=1 errors=0`.
+- Final dual-store audit output: `status=AUDITED, predictions=8, snapshots=8, settlements=3`.
+- The audit verifies JSONL hash-chain integrity, snapshot/hash references, matching prediction identities in JSONL and SQLite, and parity of settlement IDs between SQLite and the settlement JSONL.
+- Three post-merge real-feed predictions reached their targets and were settled exactly once:
+  - `live-eurusd-1m-20261012T052600Z`: target `05:32:00Z`, actual return `0`.
+  - `live-eurusd-1m-20261012T052700Z`: target `05:33:00Z`, actual return `-0.00011203318310104571`.
+  - `live-eurusd-1m-20261012T052800Z`: target `05:34:00Z`, actual return `0`.
+- The same three IDs are present in the production prediction ledger, ClaimLab settlement observations, and dual-store settlement ledger. Their decision snapshots remain immutable and are linked by their recorded SHA-256 references.
+
+## Interpretation and remaining limits
+
+The evidence-path acceptance gate is now **PASS** for at least one real live prediction; three have been settled and audited. This does **not** establish predictive edge or profitability. The three outcomes above did not produce a correct directional hit, and the sample is far too small to infer skill.
+
+External context remains degraded in the captured run: news unavailable (`URLError`), electricity data unavailable (`NO_API_KEY`), and trader leaderboard unavailable (`NO_SIGNAL_FILE`). These inputs were not represented as available evidence.
+
+Freeze status remains unchanged:
+`FEATURE_FREEZE=ACTIVE`, `MODEL_FREEZE=ACTIVE`, `SIGNAL_FREEZE=ACTIVE`, `RESEARCH_FREEZE=ACTIVE`.
