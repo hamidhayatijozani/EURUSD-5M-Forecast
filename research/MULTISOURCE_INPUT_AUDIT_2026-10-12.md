@@ -115,3 +115,15 @@ Important source distinctions:
 - OANDA candle volume is a broker/feed-specific count of prices created in the interval, not total global FX traded volume.
 
 This commit adds **no provider connector**, stores no new live data, changes no live forecast path, and does not establish predictive value. Data ingestion and out-of-sample validation remain pending.
+
+
+## Latest CI verification (2026-10-12 04:11 UTC)
+
+For head `18f25a0db7de48cc6e6d48c3b0920ebb5eddfff8`:
+- Python test workflow: **114 passed in 1.33s**.
+- Offline evidence-ablation workflow: **success**, machine-readable artifact uploaded (SHA-256 `b27b83819888a04c8b63b26981dd06315303ea90fd528fedbe1f3ec59a12000f`).
+- Test run: https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/38202781644
+- Ablation run: https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/38202781564
+- Artifact: https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/38202781564/artifacts/11725138834
+
+These checks establish that the repository tests and offline evaluator execute successfully on this commit. They do not establish live provider connectivity, live-market prediction accuracy, or trading profitability. Workflow logs also contain upstream Node.js 20 deprecation warnings for GitHub Actions; they did not fail either run.
