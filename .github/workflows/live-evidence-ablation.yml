@@ -1,0 +1,42 @@
+name: Live Evidence Ablation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/evaluate_live_ablation.py"
+      - "scripts/audit_decision_evidence.py"
+      - "engine/forecast_evidence.py"
+      - "research/live_predictions.jsonl"
+      - "research/cross_asset_live_observations.jsonl"
+      - "research/live_state.json"
+      - ".github/workflows/live-evidence-ablation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout immutable repository evidence
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run offline ablation evaluator
+        run: |
+          PYTHONPATH=. python scripts/evaluate_live_ablation.py --output live-evidence-ablation-report.json
+          PYTHONPATH=. python scripts/audit_decision_evidence.py | tee decision-evidence-audit.json
+      - name: Upload machine-readable report
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-evidence-ablation-report
+          path: |
+            live-evidence-ablation-report.json
+            decision-evidence-audit.json
+          if-no-files-found: error
+          retention-days: 14

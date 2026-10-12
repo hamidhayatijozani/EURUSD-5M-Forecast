@@ -8,6 +8,7 @@ from engine.algorithm_factory import adaptive_ensemble, update_algorithm_stats, 
 from engine.experiments import combined, pst_signal
 from engine.context import collect_external_context
 from engine.forecast import forecast
+from engine.forecast_evidence import build_decision_evidence, verify_decision_evidence
 from engine.live_feed import aligned_closed_1m_series, aligned_closed_1m_ohlc, closed_1m_rows
 from claimlab.ledger import Ledger
 from claimlab.registry import registry_hash
@@ -373,8 +374,14 @@ def _parse_jsonl_text(content):
 def _merge_prediction_texts(local_text,remote_text):
     merged={}
     core_keys=("prediction_id","prediction_ts","target_at","prediction",
-               "baseline_prediction","source_candle_ts","feature_cutoff_at","config_hash")
+               "baseline_prediction","source_candle_ts","feature_cutoff_at","config_hash",
+               "decision_evidence_sha256")
     for row in _parse_jsonl_text(remote_text)+_parse_jsonl_text(local_text):
+        evidence=row.get("decision_evidence")
+        if evidence is not None and not verify_decision_evidence(evidence):
+            raise RuntimeError(f"LIVE_DECISION_EVIDENCE_HASH_INVALID:{row.get('prediction_id','UNKNOWN')}")
+        if evidence is not None and row.get("decision_evidence_sha256") != evidence.get("snapshot_sha256"):
+            raise RuntimeError(f"LIVE_DECISION_EVIDENCE_HASH_REFERENCE_MISMATCH:{row.get('prediction_id','UNKNOWN')}")
         pid=row.get("prediction_id")
         if not pid:
             # Preserve legacy rows without modern IDs by exact-content hash.
@@ -620,12 +627,36 @@ def cycle():
         import hashlib
         config_hash=hashlib.sha256(json.dumps(config,sort_keys=True,separators=(",",":")).encode()).hexdigest()
         issued_at,target_bar_open,target_at=_prediction_times(latest_ts)
+        decision_evidence=build_decision_evidence(
+            candle_times=times[-60:],
+            series=series,
+            ohlc={key: values[-60:] for key,values in ohlc_map.items()},
+            source_candle_ts=source_candle_ts,
+            feature_cutoff_at=source_candle_ts,
+            issued_at=issued_at,
+            target_ts=target_bar_open,
+            config_hash=config_hash,
+            model_components={
+                "signal_name":signal.name,
+                "signal_score":float(signal.score),
+                "signal_confidence":float(signal.confidence),
+                "signal_regime":str(signal.regime),
+                "signal_contradiction":bool(signal.contradiction),
+                "adjusted_score":float(score),
+                "baseline_prediction":float(baseline_prediction),
+                "algorithms":[{"name":c.name,"score":float(c.score),"predicted_return":float(c.predicted_return)} for c in candidates],
+                "cross_asset_candidates":cross_candidates,
+                "cross_asset_candidates_v2":cross_candidates_v2,
+            },
+            external_context=context,
+        )
         row={"prediction_id":f"live-eurusd-1m-{latest_ts.strftime('%Y%m%dT%H%M%SZ')}","prediction_ts":iso(issued_at),
           "target_ts":iso(target_bar_open),"target_at":iso(target_at),
           "data_contract_version":LIVE_DATA_CONTRACT_VERSION,
           "entry_price":latest_price,"direction":direction,"score":score,"confidence":signal.confidence,"regime":signal.regime,"contradiction":signal.contradiction,
           "predicted_return":predicted_return,"baseline_prediction":baseline_prediction,
           "algorithms":[{"name":c.name,"score":c.score,"predicted_return":c.predicted_return} for c in candidates],"external_context":context,
+          "decision_evidence":decision_evidence,"decision_evidence_sha256":decision_evidence["snapshot_sha256"],
           "config_hash":config_hash,"status":"PENDING","cross_asset_enabled":cross_asset_enabled,
           "cross_asset_contract_version":CROSS_ASSET_CONTRACT_VERSION,"cross_asset_candidates":cross_candidates,"cross_asset_status":cross_status,
           "cross_asset_available_symbols":sorted(k for k in series if k!="EURUSD"),
