@@ -174,3 +174,22 @@ def test_live_cycle_source_failure_holds_without_fabricating_forecast(monkeypatc
     monkeypatch.setattr(loop, "save_predictions", lambda rows: pytest.fail("must not save a synthetic forecast"))
     monkeypatch.setattr(loop, "save_state", lambda state: None)
     assert loop.cycle() == "HOLD"
+
+
+def test_market_closed_contract_records_no_new_forecast(monkeypatch, capsys):
+    import os
+    from scripts import live_minute_loop as loop
+
+    monkeypatch.setenv("LIVE_CYCLES", "1")
+    monkeypatch.setattr(loop, "cycle", lambda: (_ for _ in ()).throw(RuntimeError("STALE_EURUSD_FEED")))
+    monkeypatch.setattr(loop, "load_state", lambda: {})
+    saved = {}
+    monkeypatch.setattr(loop, "save_state", lambda state: saved.update(state))
+    from engine import market_session
+    monkeypatch.setattr(market_session, "expected_weekend_closure", lambda now: True)
+
+    loop.main()
+    output = capsys.readouterr().out
+    assert "MARKET_CLOSED_EXPECTED" in output
+    assert saved["market_status"]["new_forecast_emitted"] is False
+    assert saved["market_status"]["status"] == "MARKET_CLOSED_EXPECTED"
