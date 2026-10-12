@@ -292,3 +292,7 @@ def main():
         raise SystemExit("LIVE_CYCLE_ERRORS: " + " | ".join(failures[-5:]))
     if successful==0:
         raise SystemExit("NO_SUCCESSFUL_LIVE_CYCLES")
+
+
+if __name__ == "__main__":
+    main()
