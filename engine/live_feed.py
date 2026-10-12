@@ -10,7 +10,7 @@ BASE_1M="https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1m&range=
 
 def _fetch(symbol,base):
     req=Request(base.format(SYMBOLS.get(symbol,symbol)),headers={"User-Agent":"EURUSD-5M-Forecast/3.0"})
-    with urlopen(req,timeout=15) as response: payload=json.load(response)
+    with urlopen(req,timeout=5) as response: payload=json.load(response)
     return payload["chart"]["result"][0]
 
 def fetch_5m_closes(symbol="EURUSD"):
