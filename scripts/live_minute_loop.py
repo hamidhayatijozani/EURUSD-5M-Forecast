@@ -8,7 +8,7 @@ from engine.algorithm_factory import adaptive_ensemble, update_algorithm_stats, 
 from engine.experiments import combined, pst_signal
 from engine.context import collect_external_context
 from engine.forecast import forecast
-from engine.forecast_evidence import build_decision_evidence
+from engine.forecast_evidence import build_decision_evidence, verify_decision_evidence
 from engine.live_feed import aligned_closed_1m_series, aligned_closed_1m_ohlc, closed_1m_rows
 from claimlab.ledger import Ledger
 from claimlab.registry import registry_hash
@@ -374,8 +374,14 @@ def _parse_jsonl_text(content):
 def _merge_prediction_texts(local_text,remote_text):
     merged={}
     core_keys=("prediction_id","prediction_ts","target_at","prediction",
-               "baseline_prediction","source_candle_ts","feature_cutoff_at","config_hash")
+               "baseline_prediction","source_candle_ts","feature_cutoff_at","config_hash",
+               "decision_evidence_sha256")
     for row in _parse_jsonl_text(remote_text)+_parse_jsonl_text(local_text):
+        evidence=row.get("decision_evidence")
+        if evidence is not None and not verify_decision_evidence(evidence):
+            raise RuntimeError(f"LIVE_DECISION_EVIDENCE_HASH_INVALID:{row.get('prediction_id','UNKNOWN')}")
+        if evidence is not None and row.get("decision_evidence_sha256") != evidence.get("snapshot_sha256"):
+            raise RuntimeError(f"LIVE_DECISION_EVIDENCE_HASH_REFERENCE_MISMATCH:{row.get('prediction_id','UNKNOWN')}")
         pid=row.get("prediction_id")
         if not pid:
             # Preserve legacy rows without modern IDs by exact-content hash.
