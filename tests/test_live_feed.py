@@ -94,3 +94,26 @@ def test_live_feed_falls_back_when_auxiliary_candles_are_stale(monkeypatch):
     data, times = lf.aligned_closed_1m_series(now, limit=120)
     assert list(data) == ["EURUSD"]
     assert times[-1] == master[-1][0]
+
+
+def test_live_feed_diagnostic_identifies_non_minute_cadence(monkeypatch):
+    import pytest
+    import engine.live_feed as lf
+    from datetime import timedelta
+
+    now = datetime(2026, 10, 6, 12, 10, 30, tzinfo=timezone.utc)
+    latest = now.replace(second=0, microsecond=0) - timedelta(minutes=1)
+    master = [
+        (latest - timedelta(minutes=5 * (39 - i)), 1.1 + i * 0.0001)
+        for i in range(40)
+    ]
+    monkeypatch.setattr(
+        lf, "closed_1m_rows",
+        lambda symbol, when=None: master if symbol == "EURUSD" else []
+    )
+    with pytest.raises(RuntimeError) as exc:
+        lf.aligned_closed_1m_series(now, limit=120)
+    message = str(exc.value)
+    assert "INSUFFICIENT_CONTIGUOUS_EURUSD_CANDLES:1" in message
+    assert "master_rows=40" in message
+    assert "median_interval_seconds=300.0" in message
