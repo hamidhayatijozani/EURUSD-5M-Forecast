@@ -100,6 +100,7 @@ def score_signal(pairs: list[tuple[float, float]], *, friction: float = FRICTION
         return {"status": "INSUFFICIENT_DATA", "n": 0}
     active = []
     errors = []
+    net_by_forecast = []
     hits = 0
     for prediction, actual in pairs:
         if not math.isfinite(prediction) or not math.isfinite(actual):
@@ -107,19 +108,22 @@ def score_signal(pairs: list[tuple[float, float]], *, friction: float = FRICTION
         errors.append(abs(actual - prediction))
         position = 1 if prediction > 0 else -1 if prediction < 0 else 0
         if position == 0:
+            net_by_forecast.append(0.0)
             continue
         net = position * actual - friction
         active.append((position, actual, net))
+        net_by_forecast.append(net)
         if (position > 0 and actual > friction) or (position < 0 and actual < -friction):
             hits += 1
     n = len(errors)
     if n == 0:
         return {"status": "INSUFFICIENT_DATA", "n": 0}
-    net_returns = [item[2] for item in active]
-    net_sum = sum(net_returns)
-    ci = _block_bootstrap_mean_ci(net_returns, seed=seed)
+    active_returns = [item[2] for item in active]
+    net_sum = sum(net_by_forecast)
+    ci = _block_bootstrap_mean_ci(net_by_forecast, seed=seed)
+    status = "INSUFFICIENT_DATA" if n < 10 else "NO_ACTIVE_SIGNALS" if not active else "SCORED"
     return {
-        "status": "SCORED" if n >= 10 else "INSUFFICIENT_DATA",
+        "status": status,
         "n": n,
         "active_n": len(active),
         "coverage": len(active) / n,
@@ -129,13 +133,13 @@ def score_signal(pairs: list[tuple[float, float]], *, friction: float = FRICTION
         "mae": mean(errors),
         "gross_return_sum": sum(item[1] * item[0] for item in active),
         "net_return_sum": net_sum,
-        "mean_net_return_per_active": mean(net_returns) if net_returns else None,
-        "max_drawdown": _max_drawdown(net_returns),
-        "block_bootstrap_95ci_mean_net": ci,
+        "mean_net_return_per_active": mean(active_returns) if active_returns else None,
+        "mean_net_return_per_forecast": mean(net_by_forecast),
+        "max_drawdown": _max_drawdown(net_by_forecast),
+        "block_bootstrap_95ci_mean_net_per_forecast": ci,
         "bootstrap_status": "AVAILABLE" if ci is not None else "INSUFFICIENT_DATA_FOR_BLOCK_CI",
         "friction_per_active_trade": friction,
     }
-
 
 def evaluate_predictions(rows: list[dict]) -> dict:
     selected = resolved_current_rows(rows)
@@ -249,11 +253,12 @@ def evaluate_cross_asset(rows: list[dict]) -> dict:
             or (row["position"] < 0 and row["actual"] < -row["friction"])
             for row in active
         )
-        net_returns = [row["net"] for row in active]
-        ci = _block_bootstrap_mean_ci(net_returns, seed=3000 + len(candidate))
+        net_by_forecast = [row["net"] if row["position"] != 0 else 0.0 for row in observations]
+        ci = _block_bootstrap_mean_ci(net_by_forecast, seed=3000 + len(candidate))
         n = len(observations)
+        status = "INSUFFICIENT_DATA" if n < 10 else "NO_ACTIVE_SIGNALS" if not active else "SCORED"
         out[candidate] = {
-            "status": "SCORED" if n >= 10 else "INSUFFICIENT_DATA",
+            "status": status,
             "n": n,
             "active_n": len(active),
             "coverage": len(active) / n if n else 0.0,
@@ -261,10 +266,11 @@ def evaluate_cross_asset(rows: list[dict]) -> dict:
             "hit_rate_all": wins / n if n else None,
             "hit_rate_active": wins / len(active) if active else None,
             "recorded_gross_return_sum": sum(row["net"] + row["friction"] for row in active),
-            "recorded_net_return_sum": sum(net_returns),
-            "mean_net_return_per_active": mean(net_returns) if net_returns else None,
-            "max_drawdown": _max_drawdown(net_returns),
-            "block_bootstrap_95ci_mean_net": ci,
+            "recorded_net_return_sum": sum(net_by_forecast),
+            "mean_net_return_per_active": mean(row["net"] for row in active) if active else None,
+            "mean_net_return_per_forecast": mean(net_by_forecast) if net_by_forecast else None,
+            "max_drawdown": _max_drawdown(net_by_forecast),
+            "block_bootstrap_95ci_mean_net_per_forecast": ci,
             "bootstrap_status": "AVAILABLE" if ci is not None else "INSUFFICIENT_DATA_FOR_BLOCK_CI",
             "fresh_rows": sum(row["freshness_status"] == "FRESH" for row in observations),
             "warning": "Small candidate samples are descriptive only; no strategy edge is established.",
