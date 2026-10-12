@@ -91,13 +91,13 @@ def _sign(value):
 
 
 def cross_asset_candidates(series):
-    """Freeze 1m closed-bar cross-asset signals for a 5m target."""
-    empty={"LIVE1M_NO_TRADE":0,**{name:None for name in CROSS_ASSET_CANDIDATES if name!="LIVE1M_NO_TRADE"}}
+    """Freeze each candidate only when its own required inputs are aligned."""
+    positions={name:None for name in CROSS_ASSET_CANDIDATES}
+    positions["LIVE1M_NO_TRADE"]=0
     required=("EURUSD","GBPUSD","USDJPY","DXY")
-    if not all(key in series and len(series[key])>=30 for key in required):
-        return empty,"UNAVAILABLE_MISSING_CROSS_ASSET_HISTORY"
+    available={symbol for symbol in required if symbol in series and len(series[symbol])>=30}
     returns={}
-    for symbol in required:
+    for symbol in available:
         prices=[float(x) for x in series[symbol]]
         returns[symbol]=[prices[i]/prices[i-1]-1.0 for i in range(1,len(prices))]
     recent={symbol:values[-24:] for symbol,values in returns.items()}
@@ -106,26 +106,46 @@ def cross_asset_candidates(series):
     for symbol,values in recent.items():
         vol=pstdev(values)
         z[symbol]=sum(values[-3:])/(vol*(3.0**0.5)) if vol>0 else 0.0
-    rel=[a-b for a,b in zip(recent["EURUSD"],recent["GBPUSD"])]
-    rel_vol=pstdev(rel)
-    rel_z=sum(rel[-3:])/(rel_vol*(3.0**0.5)) if rel_vol>0 else 0.0
-    votes=[_sign(-r3["DXY"]),_sign(-r3["USDJPY"]),_sign(r3["GBPUSD"])]
-    vote_sum=sum(votes)
-    consensus=1 if vote_sum>=2 else -1 if vote_sum<=-2 else 0
-    eur_direction=_sign(r3["EURUSD"])
-    composite=-z["DXY"]-z["USDJPY"]+z["GBPUSD"]
-    positions={
-        "LIVE1M_NO_TRADE":0,
-        "LIVE1M_DOLLAR_CONSENSUS_3M":consensus,
-        "LIVE1M_DXY_INVERSE_3M":-_sign(r3["DXY"]),
-        "LIVE1M_COMPOSITE_Z15":_sign(composite) if abs(composite)>=1.5 else 0,
-        "LIVE1M_EUR_GBP_DIVERGENCE_Z15":-_sign(rel_z) if abs(rel_z)>=1.5 else 0,
-        "LIVE1M_EURUSD_MOMENTUM_CONFIRMED":eur_direction if consensus and eur_direction==consensus else 0,
-        "LIVE1M_EURUSD_CATCHUP":(
-            consensus if abs(rel_z)>=1.5 and consensus and
-            ((rel_z<0 and consensus>0) or (rel_z>0 and consensus<0)) else 0),
-    }
-    return positions,"READY"
+
+    # DXY inverse is a single-source candidate and remains testable even when
+    # other auxiliary feeds are absent.
+    if "DXY" in available:
+        positions["LIVE1M_DXY_INVERSE_3M"]=-_sign(r3["DXY"])
+
+    rel_z=None
+    if {"EURUSD","GBPUSD"}.issubset(available):
+        rel=[a-b for a,b in zip(recent["EURUSD"],recent["GBPUSD"])]
+        rel_vol=pstdev(rel)
+        rel_z=sum(rel[-3:])/(rel_vol*(3.0**0.5)) if rel_vol>0 else 0.0
+        positions["LIVE1M_EUR_GBP_DIVERGENCE_Z15"]=-_sign(rel_z) if abs(rel_z)>=1.5 else 0
+
+    consensus=None
+    if {"DXY","USDJPY","GBPUSD"}.issubset(available):
+        votes=[_sign(-r3["DXY"]),_sign(-r3["USDJPY"]),_sign(r3["GBPUSD"])]
+        vote_sum=sum(votes)
+        consensus=1 if vote_sum>=2 else -1 if vote_sum<=-2 else 0
+        composite=-z["DXY"]-z["USDJPY"]+z["GBPUSD"]
+        positions["LIVE1M_DOLLAR_CONSENSUS_3M"]=consensus
+        positions["LIVE1M_COMPOSITE_Z15"]=_sign(composite) if abs(composite)>=1.5 else 0
+
+    if consensus is not None and "EURUSD" in available:
+        eur_direction=_sign(r3["EURUSD"])
+        positions["LIVE1M_EURUSD_MOMENTUM_CONFIRMED"]=(
+            eur_direction if consensus and eur_direction==consensus else 0)
+        if rel_z is not None:
+            positions["LIVE1M_EURUSD_CATCHUP"]=(
+                consensus if abs(rel_z)>=1.5 and consensus and
+                ((rel_z<0 and consensus>0) or (rel_z>0 and consensus<0)) else 0)
+
+    active_available=any(value is not None for key,value in positions.items() if key!="LIVE1M_NO_TRADE")
+    if not active_available:
+        status="UNAVAILABLE_MISSING_CROSS_ASSET_HISTORY"
+    elif len(available)==len(required):
+        status="READY"
+    else:
+        status="READY_PARTIAL"
+    return positions,status
+
 
 
 def _read_cross_asset_ledger():
@@ -544,7 +564,7 @@ def cycle():
           "predicted_return":predicted_return,"baseline_prediction":baseline_prediction,
           "algorithms":[{"name":c.name,"score":c.score,"predicted_return":c.predicted_return} for c in candidates],"external_context":context,
           "config_hash":config_hash,"status":"PENDING","cross_asset_enabled":cross_asset_enabled,
-          "cross_asset_contract_version":CROSS_ASSET_CONTRACT_VERSION,"cross_asset_candidates":cross_candidates,"cross_asset_status":cross_status,
+          "cross_asset_contract_version":CROSS_ASSET_CONTRACT_VERSION,"cross_asset_candidates":cross_candidates,"cross_asset_status":cross_status,\n          "cross_asset_available_symbols":sorted(k for k in series if k!="EURUSD"),
           "provider":"Yahoo","source_candle_ts":iso(source_candle_ts),"observed_at":iso(observed_at),
           "data_age_seconds":data_age_seconds,"freshness_limit_seconds":90.0,"freshness_status":"FRESH",
           "engine":f"DEEP-OHLC-PATTERNS+ALGORITHM-FACTORY+{signal.name}+NEWS+TOP50-24H+DATACENTER-POWER+ONLINE-CALIBRATION"}
