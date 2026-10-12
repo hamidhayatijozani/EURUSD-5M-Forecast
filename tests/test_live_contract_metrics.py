@@ -3,7 +3,7 @@ import json
 from scripts import live_minute_loop as loop
 
 
-def test_legacy_metrics_are_archived_and_reset_for_current_contract(tmp_path, monkeypatch):
+def test_legacy_metrics_are_archived_and_rebuilt_from_current_ledger(tmp_path, monkeypatch):
     state_path = tmp_path / "live_state.json"
     state_path.write_text(json.dumps({
         "bias": 0.31,
@@ -16,13 +16,13 @@ def test_legacy_metrics_are_archived_and_reset_for_current_contract(tmp_path, mo
         "last_prediction": "2026-10-12T01:02:00+00:00",
     }))
     predictions_path = tmp_path / "predictions.jsonl"
-    predictions_path.write_text("\\n".join([
-        json.dumps({"prediction_id":"clean-1","data_contract_version":loop.LIVE_DATA_CONTRACT_VERSION,
-                    "status":"RESOLVED","hit":True,"error":0.1}),
-        json.dumps({"prediction_id":"clean-2","data_contract_version":loop.LIVE_DATA_CONTRACT_VERSION,
-                    "status":"RESOLVED","hit":False,"error":-0.2}),
-        json.dumps({"prediction_id":"legacy-1","status":"RESOLVED","hit":True,"error":0.3}),
-    ]) + "\\n")
+    predictions_path.write_text("\n".join([
+        json.dumps({"prediction_id": "clean-1", "data_contract_version": loop.LIVE_DATA_CONTRACT_VERSION,
+                    "status": "RESOLVED", "hit": True, "error": 0.1}),
+        json.dumps({"prediction_id": "clean-2", "data_contract_version": loop.LIVE_DATA_CONTRACT_VERSION,
+                    "status": "RESOLVED", "hit": False, "error": -0.2}),
+        json.dumps({"prediction_id": "legacy-1", "status": "RESOLVED", "hit": True, "error": 0.3}),
+    ]) + "\n")
     monkeypatch.setattr(loop, "STATE_PATH", state_path)
     monkeypatch.setattr(loop, "PRED_PATH", predictions_path)
     monkeypatch.setattr(loop, "CLAIM_LEDGER_PATH", tmp_path / "ledger.jsonl")
@@ -30,8 +30,10 @@ def test_legacy_metrics_are_archived_and_reset_for_current_contract(tmp_path, mo
     class FakeLedger:
         def __init__(self, path):
             pass
+
         def _rows(self):
-            return [{"prediction_id":"clean-1"},{"prediction_id":"clean-2"}]
+            return [{"prediction_id": "clean-1"}, {"prediction_id": "clean-2"}]
+
         def verify(self):
             return True
 
@@ -43,7 +45,6 @@ def test_legacy_metrics_are_archived_and_reset_for_current_contract(tmp_path, mo
     assert state["correct"] == 1
     assert state["accuracy"] == 0.5
     assert state["errors"] == [0.1, -0.2]
-    assert state["errors"] == []
     assert state["algorithms"] == {}
     assert state["bias"] == 0.0
     assert state["context_cycles"] == 0
