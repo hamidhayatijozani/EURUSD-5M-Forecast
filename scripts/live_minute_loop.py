@@ -585,8 +585,33 @@ def cycle():
                 f"INSUFFICIENT_COMMON_CLOSE_OHLC_TIMESTAMPS:{len(common)}:"
                 f"close_rows={len(times)}:ohlc_rows={len(ohlc_times)}")
     except (RuntimeError,HTTPError,URLError,TimeoutError,OSError) as exc:
+        reason = f"{type(exc).__name__}: {exc}"
+        from engine.market_session import expected_weekend_closure
+        expected_closed = expected_weekend_closure(now) and any(
+            marker in reason for marker in (
+                "STALE_EURUSD_FEED",
+                "STALE_EURUSD_FRESHNESS_EVIDENCE",
+                "INSUFFICIENT_CONTIGUOUS_EURUSD_CANDLES",
+                "EURUSD_ONE_MINUTE_FEED_UNAVAILABLE",
+                "EURUSD_ONE_MINUTE_OHLC_UNAVAILABLE",
+                "INSUFFICIENT_CONTIGUOUS_EURUSD_OHLC",
+                "INSUFFICIENT_COMMON_CLOSE_OHLC_TIMESTAMPS",
+            )
+        )
+        if expected_closed:
+            state["market_status"] = {
+                "status": "MARKET_CLOSED",
+                "reason": "WEEKEND_FX_SESSION",
+                "observed_at": iso(datetime.now(timezone.utc)),
+                "last_valid_prediction": state.get("last_prediction"),
+                "new_forecast_emitted": False,
+                "source_error": reason,
+            }
+            save_state(state)
+            print("MARKET_CLOSED: no new forecast emitted; last valid evidence preserved")
+            return "MARKET_CLOSED"
         print(
-            f"LIVE_CYCLE_HOLD: {type(exc).__name__}: {exc}; "
+            f"LIVE_CYCLE_HOLD: {reason}; "
             "pending_settlement_attempted=true; new_forecast_emitted=false"
         )
         return "HOLD"

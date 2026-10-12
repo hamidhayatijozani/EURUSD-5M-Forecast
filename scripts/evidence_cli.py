@@ -46,7 +46,7 @@ def main(argv=None):
             db.insert_settlement(args.prediction_id, settlement, settled_at=args.settled_at)
             settlement_path.parent.mkdir(parents=True, exist_ok=True)
             with settlement_path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps({"prediction_id": args.prediction_id, **settlement}, sort_keys=True) + "\\n")
+                handle.write(json.dumps({"prediction_id": args.prediction_id, **settlement}, sort_keys=True) + "\n")
                 handle.flush()
             print(json.dumps({"status": "RESOLVED", "prediction_id": args.prediction_id}))
         elif args.command in ("audit", "verify"):
