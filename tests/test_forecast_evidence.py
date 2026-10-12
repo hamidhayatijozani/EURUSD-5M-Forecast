@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from engine.forecast_evidence import build_decision_evidence
+from engine.forecast_evidence import build_decision_evidence, verify_decision_evidence
 
 
 def fixture():
@@ -28,6 +28,7 @@ def test_snapshot_is_timestamped_aligned_and_hashed():
     assert evidence["candle_open_times"][-1] == evidence["source_candle_ts"]
     assert len(evidence["series_close_inputs"]["EURUSD"]) == 3
     assert len(evidence["snapshot_sha256"]) == 64
+    assert verify_decision_evidence(evidence) is True
 
 
 def test_rejects_future_or_misaligned_candle():
@@ -51,3 +52,9 @@ def test_rejects_issue_time_before_candle_close():
     args["issued_at"] = args["source_candle_ts"] + timedelta(seconds=20)
     with pytest.raises(ValueError, match="ISSUED_BEFORE"):
         build_decision_evidence(**args)
+
+
+def test_evidence_tampering_is_detected():
+    evidence = build_decision_evidence(**fixture())
+    evidence["model_components"]["adjusted_score"] = 999
+    assert verify_decision_evidence(evidence) is False
