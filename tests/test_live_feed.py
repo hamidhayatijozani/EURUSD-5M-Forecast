@@ -117,3 +117,29 @@ def test_live_feed_diagnostic_identifies_non_minute_cadence(monkeypatch):
     assert "INSUFFICIENT_CONTIGUOUS_EURUSD_CANDLES:1" in message
     assert "master_rows=40" in message
     assert "median_interval_seconds=300.0" in message
+
+
+def test_live_feed_keeps_fresh_auxiliary_symbols_when_one_is_stale(monkeypatch):
+    import engine.live_feed as lf
+    from datetime import timedelta
+
+    now = datetime(2026, 10, 6, 12, 10, 30, tzinfo=timezone.utc)
+    base = now.replace(second=0, microsecond=0)
+    master = [
+        (base - timedelta(minutes=40 - i), 1.1 + i * 0.0001)
+        for i in range(40)
+    ]
+    stale_aux = master[:-4]
+    def fake_rows(symbol, when=None):
+        if symbol == "EURUSD":
+            return master
+        if symbol == "USDJPY":
+            return stale_aux
+        return master
+    monkeypatch.setattr(lf, "closed_1m_rows", fake_rows)
+    data, times = lf.aligned_closed_1m_series(now, limit=120)
+    assert "EURUSD" in data
+    assert "DXY" in data
+    assert "GBPUSD" in data
+    assert "USDJPY" not in data
+    assert len(times) == 40

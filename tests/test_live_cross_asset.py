@@ -11,9 +11,11 @@ def test_live_cross_asset_candidates_require_all_aligned_sources():
     prices = [1.1 + i * 0.0001 for i in range(40)]
     partial = {"EURUSD": prices, "GBPUSD": prices, "USDJPY": prices}
     positions, status = cross_asset_candidates(partial)
-    assert status == "UNAVAILABLE_MISSING_CROSS_ASSET_HISTORY"
+    assert status == "READY_PARTIAL"
     assert positions["LIVE1M_NO_TRADE"] == 0
-    assert all(positions[name] is None for name in CROSS_ASSET_CANDIDATES if name != "LIVE1M_NO_TRADE")
+    assert positions["LIVE1M_EUR_GBP_DIVERGENCE_Z15"] is not None
+    assert positions["LIVE1M_DXY_INVERSE_3M"] is None
+    assert positions["LIVE1M_DOLLAR_CONSENSUS_3M"] is None
 
 
 def test_live_cross_asset_candidates_use_past_aligned_series():
@@ -64,3 +66,14 @@ def test_live_cross_asset_ledger_is_hash_chained_and_idempotent(tmp_path, monkey
     assert rows[0]["net_return"] == 0.0
     assert rows[1]["net_return"] == 0.00008
     assert rows[-1]["record_hash"] == last_hash
+
+
+def test_cross_asset_candidate_availability_is_per_candidate():
+    eurusd = [1.1 + i * 0.0001 for i in range(40)]
+    dxy = [100.0 - i * 0.01 for i in range(40)]
+    positions, status = cross_asset_candidates({"EURUSD": eurusd, "DXY": dxy})
+    assert status == "READY_PARTIAL"
+    assert positions["LIVE1M_DXY_INVERSE_3M"] == 1
+    assert positions["LIVE1M_DOLLAR_CONSENSUS_3M"] is None
+    assert positions["LIVE1M_EUR_GBP_DIVERGENCE_Z15"] is None
+    assert positions["LIVE1M_NO_TRADE"] == 0
