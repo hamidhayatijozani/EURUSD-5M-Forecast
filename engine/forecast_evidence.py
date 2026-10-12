@@ -88,3 +88,18 @@ def build_decision_evidence(
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
     payload["snapshot_sha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     return payload
+
+
+def verify_decision_evidence(evidence):
+    """Verify the content hash before evidence is merged or analyzed."""
+    if not isinstance(evidence, dict):
+        return False
+    supplied = evidence.get("snapshot_sha256")
+    if not isinstance(supplied, str) or len(supplied) != 64:
+        return False
+    payload = {key: value for key, value in evidence.items() if key != "snapshot_sha256"}
+    try:
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError):
+        return False
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest() == supplied
