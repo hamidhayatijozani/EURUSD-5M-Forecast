@@ -8,6 +8,7 @@ from engine.algorithm_factory import adaptive_ensemble, update_algorithm_stats, 
 from engine.experiments import combined, pst_signal
 from engine.context import collect_external_context
 from engine.forecast import forecast
+from engine.cross_repo_features import cross_repo_feature_snapshot
 from engine.live_feed import aligned_closed_1m_series, aligned_closed_1m_ohlc, closed_1m_rows
 from claimlab.ledger import Ledger
 from claimlab.registry import registry_hash
@@ -620,11 +621,14 @@ def cycle():
         import hashlib
         config_hash=hashlib.sha256(json.dumps(config,sort_keys=True,separators=(",",":")).encode()).hexdigest()
         issued_at,target_bar_open,target_at=_prediction_times(latest_ts)
+        experimental_feature_snapshot=cross_repo_feature_snapshot(
+            series["EURUSD"],issued_at=iso(issued_at),source_timeframe="1m",window=12)
         row={"prediction_id":f"live-eurusd-1m-{latest_ts.strftime('%Y%m%dT%H%M%SZ')}","prediction_ts":iso(issued_at),
           "target_ts":iso(target_bar_open),"target_at":iso(target_at),
           "data_contract_version":LIVE_DATA_CONTRACT_VERSION,
           "entry_price":latest_price,"direction":direction,"score":score,"confidence":signal.confidence,"regime":signal.regime,"contradiction":signal.contradiction,
           "predicted_return":predicted_return,"baseline_prediction":baseline_prediction,
+          "experimental_feature_snapshot":experimental_feature_snapshot,
           "algorithms":[{"name":c.name,"score":c.score,"predicted_return":c.predicted_return} for c in candidates],"external_context":context,
           "config_hash":config_hash,"status":"PENDING","cross_asset_enabled":cross_asset_enabled,
           "cross_asset_contract_version":CROSS_ASSET_CONTRACT_VERSION,"cross_asset_candidates":cross_candidates,"cross_asset_status":cross_status,
