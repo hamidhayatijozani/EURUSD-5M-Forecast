@@ -34,7 +34,8 @@ def cross_repo_features(closes: Sequence[float], *, window: int = 12) -> dict[st
     recent_three = returns[-3:]
     pressure = sum(recent_three) / prior_scale
     novelty = abs(returns[-1]) / prior_scale
-    net_return = values[-1] / values[0] - 1.0
+    # Use the additive return path for a bounded [0, 1] efficiency ratio.
+    net_return = sum(returns)
     trend_efficiency = abs(net_return) / sum(abs(value) for value in returns)
 
     nonzero_signs = [1 if value > 0 else -1 for value in returns if value != 0]
