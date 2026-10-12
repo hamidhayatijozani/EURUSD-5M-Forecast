@@ -46,7 +46,32 @@ def load_state():
             "bias":0.0,"resolved":0,"correct":0,"errors":[],
             "algorithms":{},"context_cycles":0,"accuracy":None,
         })
+        _reconcile_current_contract_metrics(state)
     return state
+def _reconcile_current_contract_metrics(state):
+    """Rebuild headline counters from resolved predictions backed by the verified ledger."""
+    predictions=read_predictions()
+    ledger=Ledger(CLAIM_LEDGER_PATH)
+    ledger_rows=ledger._rows()
+    if ledger_rows and not ledger.verify():
+        raise RuntimeError("LIVE_CLAIM_LEDGER_INTEGRITY_FAILURE_DURING_METRIC_REBUILD")
+    ledger_ids={row.get("prediction_id") for row in ledger_rows}
+    resolved=[row for row in predictions
+              if row.get("data_contract_version")==LIVE_DATA_CONTRACT_VERSION
+              and row.get("status")=="RESOLVED"]
+    missing=[row.get("prediction_id") for row in resolved
+             if row.get("prediction_id") not in ledger_ids]
+    if missing:
+        raise RuntimeError(
+            "LIVE_STATE_LEDGER_MISMATCH: resolved current-contract predictions "
+            f"missing from ledger: {missing[:5]}"
+        )
+    state["resolved"]=len(resolved)
+    state["correct"]=sum(bool(row.get("hit")) for row in resolved)
+    state["errors"]=[float(row["error"]) for row in resolved if "error" in row][-500:]
+    state["accuracy"]=state["correct"]/state["resolved"] if state["resolved"] else None
+
+
 def save_state(state):
     STATE_PATH.parent.mkdir(parents=True,exist_ok=True); STATE_PATH.write_text(json.dumps(state,indent=2,sort_keys=True),encoding="utf-8")
 def read_predictions():
