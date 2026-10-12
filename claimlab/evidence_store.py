@@ -22,6 +22,20 @@ def canonical_json(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
+def verify_snapshot(snapshot):
+    if not isinstance(snapshot, dict):
+        return False
+    supplied = snapshot.get("snapshot_sha256")
+    if not isinstance(supplied, str) or len(supplied) != 64:
+        return False
+    payload = {k: v for k, v in snapshot.items() if k != "snapshot_sha256"}
+    try:
+        expected = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+    except (TypeError, ValueError):
+        return False
+    return supplied == expected
+
+
 def generate_hash(row):
     payload = {k: v for k, v in row.items() if k != "evidence_hash"}
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
@@ -32,6 +46,8 @@ def create_row(*, prediction_id, decision_snapshot, **fields):
         raise ValueError("DECISION_SNAPSHOT_REQUIRED")
     if not decision_snapshot.get("snapshot_sha256"):
         raise ValueError("SNAPSHOT_SHA256_REQUIRED")
+    if not verify_snapshot(decision_snapshot):
+        raise ValueError("SNAPSHOT_HASH_MISMATCH")
     row = dict(fields)
     row.update({"prediction_id": str(prediction_id), "decision_snapshot": decision_snapshot})
     validate_temporal_contract(row)
@@ -55,6 +71,8 @@ class JsonLedger:
         validate_temporal_contract(record)
         if not record.get("decision_snapshot") or not record.get("snapshot_sha256") or not record.get("evidence_hash"):
             raise ValueError("EVIDENCE_FIELDS_REQUIRED")
+        if record["snapshot_sha256"] != record["decision_snapshot"].get("snapshot_sha256") or not verify_snapshot(record["decision_snapshot"]):
+            raise ValueError("SNAPSHOT_HASH_MISMATCH")
         if generate_hash(record) != record["evidence_hash"]:
             raise ValueError("EVIDENCE_HASH_MISMATCH")
         rows = self._rows()
@@ -75,6 +93,8 @@ class JsonLedger:
             supplied = row.get("ledger_hash")
             record = {k: v for k, v in row.items() if k not in ("previous_hash", "ledger_hash")}
             if row.get("previous_hash", "") != previous or generate_hash(record) != record.get("evidence_hash"):
+                return False
+            if record.get("snapshot_sha256") != record.get("decision_snapshot", {}).get("snapshot_sha256") or not verify_snapshot(record.get("decision_snapshot")):
                 return False
             expected = hashlib.sha256((previous + canonical_json(record)).encode("utf-8")).hexdigest()
             if supplied != expected:
@@ -114,6 +134,8 @@ class LedgerDB:
         validate_temporal_contract(record)
         if not record.get("evidence_hash") or not record.get("decision_snapshot"):
             raise ValueError("EVIDENCE_FIELDS_REQUIRED")
+        if record.get("snapshot_sha256") != record["decision_snapshot"].get("snapshot_sha256") or not verify_snapshot(record["decision_snapshot"]):
+            raise ValueError("SNAPSHOT_HASH_MISMATCH")
         if generate_hash(record) != record["evidence_hash"]:
             raise ValueError("EVIDENCE_HASH_MISMATCH")
         pid = str(record["prediction_id"])
@@ -131,11 +153,15 @@ class LedgerDB:
     def insert_snapshot(self, prediction_id, snapshot):
         if not isinstance(snapshot, dict) or not snapshot.get("snapshot_sha256"):
             raise ValueError("SNAPSHOT_SHA256_REQUIRED")
-        payload = dict(snapshot)
-        supplied = payload.pop("snapshot_sha256")
-        expected = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
-        if supplied != expected:
+        if not verify_snapshot(snapshot):
             raise ValueError("SNAPSHOT_HASH_MISMATCH")
+        supplied = snapshot["snapshot_sha256"]
+        prediction = self.get_prediction(prediction_id)
+        if prediction is None:
+            raise ValueError("UNKNOWN_PREDICTION")
+        payload = json.loads(prediction["payload_json"])
+        if payload.get("snapshot_sha256") != supplied:
+            raise ValueError("SNAPSHOT_REFERENCE_MISMATCH")
         self.connection.execute("INSERT INTO snapshots VALUES (?, ?, ?)",
                                 (prediction_id, supplied, canonical_json(snapshot)))
         self.connection.commit()
