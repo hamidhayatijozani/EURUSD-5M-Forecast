@@ -1,0 +1,36 @@
+{
+  "schema": "claimlab.live_cross_asset_preregistration.v1",
+  "experiment_id": "EURUSD-LIVE1M-SIGNAL-5M-TARGET-001",
+  "status": "PRE_REGISTERED_FORWARD_PAPER",
+  "activation_rule": "Only predictions emitted by a main-branch commit containing live-1m-signals-to-5m-target-v1 are included; no backfilled predictions.",
+  "input_interval": "1 minute closed candles",
+  "target_horizon_minutes": 5,
+  "primary_cost": 0.00002,
+  "cost_interpretation": "Assumed 0.2-pip friction, not broker-verified",
+  "candidate_ids": [
+    "LIVE1M_NO_TRADE",
+    "LIVE1M_DOLLAR_CONSENSUS_3M",
+    "LIVE1M_DXY_INVERSE_3M",
+    "LIVE1M_COMPOSITE_Z15",
+    "LIVE1M_EUR_GBP_DIVERGENCE_Z15",
+    "LIVE1M_EURUSD_MOMENTUM_CONFIRMED",
+    "LIVE1M_EURUSD_CATCHUP"
+  ],
+  "signal_definitions": {
+    "LIVE1M_DOLLAR_CONSENSUS_3M": "majority vote of inverse DXY 3-minute return, inverse USDJPY 3-minute return, and positive GBPUSD 3-minute return",
+    "LIVE1M_DXY_INVERSE_3M": "position opposite to the last 3 closed one-minute DXY returns",
+    "LIVE1M_COMPOSITE_Z15": "position in -z(DXY)-z(USDJPY)+z(GBPUSD) only when absolute composite z is at least 1.5, using trailing 24 one-minute returns",
+    "LIVE1M_EUR_GBP_DIVERGENCE_Z15": "contrarian position against EURUSD-minus-GBPUSD relative-return z when absolute z is at least 1.5",
+    "LIVE1M_EURUSD_MOMENTUM_CONFIRMED": "take EURUSD 3-minute momentum only when the cross-asset majority agrees",
+    "LIVE1M_EURUSD_CATCHUP": "take the cross-asset majority only when relative EURGBP divergence is extreme and implies catch-up",
+    "LIVE1M_NO_TRADE": "zero position and zero friction, control"
+  },
+  "inference_plan": {
+    "minimum_resolved_observations": 1000,
+    "block_size_bars": 5,
+    "multiple_testing": "Benjamini-Hochberg across the seven frozen candidates",
+    "required_survival": "positive net mean after assumed friction, 95% block-bootstrap lower bound above zero, BH-adjusted p below 0.05, and at least 200 trades",
+    "cost_sensitivity": [0.00002, 0.00005, 0.0001]
+  },
+  "scientific_boundary": "Forward paper evidence only. No live broker orders, no profitability claim, and no candidate retuning on the forward holdout."
+}
