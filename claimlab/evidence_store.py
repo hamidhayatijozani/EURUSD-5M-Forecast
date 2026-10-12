@@ -19,7 +19,7 @@ class TargetNotReachedError(ValueError):
 
 
 def canonical_json(value):
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
 
 
 def verify_snapshot(snapshot):
