@@ -73,14 +73,29 @@ The checked-in cross-asset ledger contains 54 candidate observations across two 
 4. **Ablation needs a common timestamp cohort:** baseline, algorithm factory, PST, context, cross-asset, full ensemble and inverse candidate must be scored on exactly the same resolved timestamps; unavailable inputs must be recorded as missing, not silently converted into evidence of zero directional effect.
 5. **Overlapping 5-minute targets:** consecutive minute forecasts share most of their horizon. Confidence intervals and significance tests must account for serial dependence, for example via block bootstrap, and the evaluation window must remain untouched by tuning.
 
+## First offline ablation snapshot
+
+The new evaluator was run by GitHub Actions against the checked-in ledgers. The run completed successfully and uploaded a machine-readable artifact. On the 30-row current-contract cohort:
+
+| Candidate | n | Active | Hit rate over all rows | Net return sum | Mean net return per forecast | 95% block-bootstrap CI for mean net return |
+|---|---:|---:|---:|---:|---:|---|
+| Simple baseline | 30 | 26 | 36.7% | +0.0001530 | +0.00000510 | [-0.0000323, +0.0000405] |
+| Full ensemble | 30 | 30 | 36.7% | -0.0000391 | -0.00000130 | [-0.0000312, +0.0000473] |
+| Inverse full ensemble | 30 | 30 | 30.0% | -0.0011609 | -0.0000387 | [-0.0000873, -0.00000878] |
+| Inverse baseline | 30 | 26 | 20.0% | -0.0011930 | -0.0000398 | [-0.0000747, -0.00000104] |
+| MOM_10 candidate | 30 | 26 | 40.0% | +0.0006017 | +0.0000201 | [-0.0000197, +0.0000755] |
+| MOM_20 candidate | 30 | 26 | 40.0% | +0.0003773 | +0.0000126 | [-0.0000384, +0.0000755] |
+
+Returns are in decimal return units, with 0.00002 friction per active observation. The confidence intervals are exploratory block-bootstrap intervals on the per-forecast net return series, including zero return for abstentions. Forecast horizons overlap, and the sample is small; do not treat these results as proof of a durable edge. In particular, the simple baseline beats the full ensemble on the observed net-return sum, while the inverse candidate performs worse. This is a reason to test, not a reason to deploy.
+
+External context remained `UNAVAILABLE_NO_DIRECTIONAL_CONTEXT` for all 30 observations in this cohort. Cross-asset candidates such as `LIVE1M2_GBPUSD_MOMENTUM_3M` have only 3 observations and are explicitly marked `INSUFFICIENT_DATA`. The volatility-regime candidate generated no active positions and is marked `NO_ACTIVE_SIGNALS`.
+
+GitHub Actions evidence:
+- Offline evaluator: https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/38202426141
+- Artifact: https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/38202426141/artifacts/11725269555
+
 ## Next implementation step
 
-Build a reproducible, offline evaluator over the immutable prediction/settlement records. It should:
-- select only resolved rows under one data contract and validate uniqueness/timestamps;
-- calculate baseline, original, inverse and direction-only metrics separately;
-- report FLAT coverage and explicit abstention policy;
-- report MAE, hit rate, net return after friction, drawdown, sample count and block-bootstrap intervals;
-- emit `INSUFFICIENT_DATA` where a candidate lacks enough observations;
-- keep external-source ablation marked unavailable until raw, timestamped source features are persisted per forecast.
+The evaluator exposes a data-contract limitation: per-forecast PST/base component score, algorithm ensemble score/weights at issue time, and raw timestamped context features are not all persisted independently. The next code change should extend forecast evidence to record these components without recomputing them after the outcome is known. Then run common-cohort leave-one-source-out ablations on a later untouched window.
 
 No model weights should be tuned against this same evaluation window. This audit changes no live strategy and authorizes no live trading.
