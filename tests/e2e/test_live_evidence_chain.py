@@ -176,3 +176,52 @@ def test_market_closed_contract_records_hold_without_fabricating_forecast(tmp_pa
     assert state["market_status"]["status"] == "MARKET_CLOSED"
     assert state["market_status"]["new_forecast_emitted"] is False
     assert not (tmp_path / "live_predictions.jsonl").exists()
+
+
+
+def test_live_cycle_writes_snapshot_and_hash_to_production_prediction_jsonl(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+    from scripts import live_minute_loop as loop
+
+    state_path = tmp_path / "live_state.json"
+    predictions_path = tmp_path / "live_predictions.jsonl"
+    monkeypatch.setattr(loop, "STATE_PATH", state_path)
+    monkeypatch.setattr(loop, "PRED_PATH", predictions_path)
+    monkeypatch.setattr(loop, "CLAIM_LEDGER_PATH", tmp_path / "claimlab.jsonl")
+    monkeypatch.setattr(loop, "CROSS_ASSET_LEDGER_PATH", tmp_path / "cross_asset.jsonl")
+    monkeypatch.setattr(loop, "git_commit", lambda: None)
+    monkeypatch.setattr(loop, "closed_1m_rows", lambda *args, **kwargs: [])
+
+    now_floor = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    times = [now_floor - timedelta(minutes=35 - i) for i in range(35)]
+    prices = [1.10 + i * 0.00001 for i in range(35)]
+    data = {"EURUSD": prices}
+    ohlc = {"EURUSD": [(p, p + 0.0001, p - 0.0001, p) for p in prices]}
+    monkeypatch.setattr(loop, "aligned_closed_1m_series", lambda now: (data, times))
+    monkeypatch.setattr(loop, "aligned_closed_1m_ohlc", lambda now: (ohlc, times))
+    monkeypatch.setattr(
+        loop, "collect_external_context",
+        lambda *args, **kwargs: {"context_score": 0.0, "power_score": 0.0},
+    )
+    signal = SimpleNamespace(
+        name="SYNTHETIC_TEST_SIGNAL", score=0.2, confidence=0.5,
+        regime="TEST", contradiction=False,
+    )
+    monkeypatch.setattr(
+        loop, "predict",
+        lambda *args, **kwargs: (signal, "UP", 0.2, 0.0001, [], 0.0),
+    )
+
+    assert loop.cycle() == "FORECAST"
+    rows = [json.loads(line) for line in predictions_path.read_text(encoding="utf-8").splitlines()]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["prediction_id"]
+    assert row["decision_evidence"]["snapshot_sha256"]
+    assert row["decision_evidence_sha256"] == row["decision_evidence"]["snapshot_sha256"]
+    from engine.forecast_evidence import verify_decision_evidence
+    assert verify_decision_evidence(row["decision_evidence"])
+    assert row["source_candle_ts"]
+    assert row["config_hash"]
+    assert row["status"] == "PENDING"
