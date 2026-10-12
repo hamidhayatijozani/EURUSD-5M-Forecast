@@ -1,6 +1,7 @@
 """Yahoo research feed adapter with strict closed-candle information lock."""
 import json
 from datetime import datetime,timedelta,timezone
+from statistics import median
 from urllib.error import HTTPError
 from urllib.request import Request,urlopen
 
@@ -10,7 +11,7 @@ BASE_1M="https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1m&range=
 
 def _fetch(symbol,base):
     req=Request(base.format(SYMBOLS.get(symbol,symbol)),headers={"User-Agent":"EURUSD-5M-Forecast/3.0"})
-    with urlopen(req,timeout=15) as response: payload=json.load(response)
+    with urlopen(req,timeout=5) as response: payload=json.load(response)
     return payload["chart"]["result"][0]
 
 def fetch_5m_closes(symbol="EURUSD"):
@@ -111,6 +112,13 @@ def aligned_closed_1m_series(now=None,limit=120):
         raise RuntimeError(f"EURUSD_ONE_MINUTE_FEED_UNAVAILABLE:{detail}") from exc
     if not master:
         raise RuntimeError("EURUSD_ONE_MINUTE_FEED_UNAVAILABLE")
+    master_total=len(master)
+    master_first=master[0][0]
+    master_last=master[-1][0]
+    intervals=[(master[i][0]-master[i-1][0]).total_seconds() for i in range(1,len(master))]
+    median_interval=median(intervals) if intervals else None
+    non_minute_gaps=sum(delta!=60.0 for delta in intervals)
+    largest_gap=max(intervals) if intervals else None
     latest_close=master[-1][0]+timedelta(minutes=1)
     lag=(now-latest_close).total_seconds()
     if lag>90:
@@ -139,7 +147,14 @@ def aligned_closed_1m_series(now=None,limit=120):
     master=master[start:][-limit:]
     times=[row[0] for row in master]
     if len(times)<30:
-        raise RuntimeError(f"INSUFFICIENT_CONTIGUOUS_EURUSD_CANDLES:{len(times)}")
+        aux_counts={symbol:len(rows) for symbol,rows in series.items() if symbol!="EURUSD"}
+        raise RuntimeError(
+            "INSUFFICIENT_CONTIGUOUS_EURUSD_CANDLES:"
+            f"{len(times)}:master_rows={master_total}:first={master_first.isoformat()}:"
+            f"last={master_last.isoformat()}:latest_lag_seconds={lag:.1f}:"
+            f"median_interval_seconds={median_interval}:non_minute_gaps={non_minute_gaps}:"
+            f"largest_gap_seconds={largest_gap}:auxiliary_rows={aux_counts}"
+        )
     return {"EURUSD":[row[1] for row in master]},times
 
 def aligned_closed_1m_ohlc(now=None,limit=120):
