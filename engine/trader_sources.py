@@ -27,7 +27,7 @@ SOURCES=(
 def source_manifest():
     return [asdict(x) for x in SOURCES]
 
-def _get(url,timeout=15):
+def _get(url,timeout=5):
     req=Request(url,headers={"User-Agent":"EURUSD-5M-Forecast/4.0"})
     with urlopen(req,timeout=timeout) as r:
         return r.read().decode("utf-8","ignore")
