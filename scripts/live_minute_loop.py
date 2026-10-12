@@ -632,7 +632,9 @@ def cycle():
             series=series,
             ohlc={key: values[-60:] for key,values in ohlc_map.items()},
             source_candle_ts=source_candle_ts,
+            feature_cutoff_at=source_candle_ts,
             issued_at=issued_at,
+            target_ts=target_bar_open,
             config_hash=config_hash,
             model_components={
                 "signal_name":signal.name,
