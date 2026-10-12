@@ -1,0 +1,35 @@
+name: ClaimLab cross-asset pressure arena
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/claimlab_cross_asset_arena.py"
+      - "research/CROSS_ASSET_ARENA_PREREGISTRATION.json"
+      - "tests/test_cross_asset_arena.py"
+      - ".github/workflows/cross-asset-arena.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  cross-asset-arena:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements.txt
+      - name: Test as-of alignment and missing data
+        run: PYTHONPATH=. pytest -q tests/test_cross_asset_arena.py
+      - name: Run exploratory cross-asset OOS
+        run: PYTHONPATH=. python scripts/claimlab_cross_asset_arena.py
+      - name: Preserve cross-asset evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-asset-arena-evidence
+          path: evidence/cross-asset-arena/cross_asset_arena.json
+          if-no-files-found: error
+          retention-days: 30
