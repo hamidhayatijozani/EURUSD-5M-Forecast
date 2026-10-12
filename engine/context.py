@@ -23,7 +23,7 @@ class ExternalContext:
 def _clip(x, lo=-1.0, hi=1.0):
     return max(lo, min(hi, float(x)))
 
-def _fetch_json(url, headers=None, timeout=12):
+def _fetch_json(url, headers=None, timeout=5):
     req = Request(url, headers=headers or {"User-Agent": "EURUSD-5M-Forecast/3.1"})
     with urlopen(req, timeout=timeout) as r:
         return json.load(r)
