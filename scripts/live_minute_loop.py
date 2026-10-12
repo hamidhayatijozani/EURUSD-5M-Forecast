@@ -22,7 +22,31 @@ LIVE_DATA_CONTRACT_VERSION="freshness-90s-v2"
 
 def iso(dt): return dt.astimezone(timezone.utc).isoformat()
 def load_state():
-    return json.loads(STATE_PATH.read_text()) if STATE_PATH.exists() else {"bias":0.0,"resolved":0,"correct":0,"errors":[],"last_prediction":None,"context_cycles":0,"algorithms":{}}
+    defaults={"bias":0.0,"resolved":0,"correct":0,"errors":[],"last_prediction":None,
+              "context_cycles":0,"algorithms":{},
+              "live_data_contract_version":LIVE_DATA_CONTRACT_VERSION,"accuracy":None}
+    if not STATE_PATH.exists():
+        return defaults
+    state=json.loads(STATE_PATH.read_text())
+    if state.get("live_data_contract_version") != LIVE_DATA_CONTRACT_VERSION:
+        # Old counters include pre-contract predictions that are deliberately
+        # excluded from the clean ClaimLab ledger. Archive their summary, then
+        # restart online calibration and headline metrics for the current contract.
+        if "legacy_pre_contract_metrics" not in state and any(
+            state.get(key) for key in ("resolved","correct","errors","algorithms")
+        ):
+            state["legacy_pre_contract_metrics"]={
+                "resolved":state.get("resolved",0),
+                "correct":state.get("correct",0),
+                "accuracy":state.get("accuracy"),
+                "note":"Unscoped legacy metrics; not comparable to freshness-90s-v2 evidence",
+            }
+        state.update({
+            "live_data_contract_version":LIVE_DATA_CONTRACT_VERSION,
+            "bias":0.0,"resolved":0,"correct":0,"errors":[],
+            "algorithms":{},"context_cycles":0,"accuracy":None,
+        })
+    return state
 def save_state(state):
     STATE_PATH.parent.mkdir(parents=True,exist_ok=True); STATE_PATH.write_text(json.dumps(state,indent=2,sort_keys=True),encoding="utf-8")
 def read_predictions():
