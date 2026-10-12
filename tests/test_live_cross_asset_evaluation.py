@@ -52,3 +52,10 @@ def test_no_trade_control_alone_does_not_kill_unobserved_candidates(tmp_path, mo
     assert result["metrics"]["LIVE1M_NO_TRADE"]["resolved_observations"] == 1000
     assert result["metrics"]["LIVE1M_DOLLAR_CONSENSUS_3M"]["resolved_observations"] == 0
     assert result["verdict"] == "INSUFFICIENT_DATA"
+
+
+def test_checked_in_forward_preregistration_is_valid_and_locked():
+    from pathlib import Path
+    prereg=json.loads(Path("research/LIVE_CROSS_ASSET_PREREGISTRATION.json").read_text(encoding="utf-8"))
+    assert prereg["activation_time"] == "2026-10-12T01:23:59Z"
+    assert prereg["candidate_ids"][0] == "LIVE1M_NO_TRADE"
