@@ -1,0 +1,35 @@
+{
+  "schema": "claimlab.cross_asset_preregistration.v1",
+  "experiment_id": "EURUSD-M5-CROSS-ASSET-PRESSURE-001",
+  "status": "PRE_REGISTERED_EXPLORATORY",
+  "oos_start_at": "2026-09-25T21:00:00Z",
+  "source": "Yahoo Finance 5-minute OHLC for EURUSD, GBPUSD, USDJPY, and DXY",
+  "candidate_ids": [
+    "NO_TRADE",
+    "CROSS_ASSET_DOLLAR_CONSENSUS",
+    "DXY_LEAD_LAG_3",
+    "CROSS_ASSET_COMPOSITE_Z15",
+    "EUR_GBP_DIVERGENCE_CONTRARIAN",
+    "EURUSD_MOMENTUM_CONFIRMED",
+    "EURUSD_CROSS_ASSET_CATCHUP"
+  ],
+  "signal_definitions": {
+    "CROSS_ASSET_DOLLAR_CONSENSUS": "majority vote of inverse DXY 3-bar return, inverse USDJPY 3-bar return, and positive GBPUSD 3-bar return",
+    "DXY_LEAD_LAG_3": "trade opposite to the last 3-bar DXY return",
+    "CROSS_ASSET_COMPOSITE_Z15": "trade only when -z(DXY)-z(USDJPY)+z(GBPUSD) exceeds absolute 1.5",
+    "EUR_GBP_DIVERGENCE_CONTRARIAN": "trade against the EURUSD minus GBPUSD 3-bar relative-return z-score when its absolute value is at least 1.5",
+    "EURUSD_MOMENTUM_CONFIRMED": "take EURUSD 3-bar direction only when the cross-asset majority agrees",
+    "EURUSD_CROSS_ASSET_CATCHUP": "trade toward the cross-asset majority only when EURGBP divergence exceeds absolute z 1.5 and the majority implies catch-up",
+    "NO_TRADE": "position zero, cost zero control"
+  },
+  "inference": {
+    "primary_cost": 0.00002,
+    "sensitivity_costs": [0.00002, 0.00005, 0.0001],
+    "block_size_bars": 5,
+    "bootstrap_resamples": 1000,
+    "alpha": 0.05,
+    "multiple_testing": "Benjamini-Hochberg across this frozen candidate set",
+    "minimum_test_trades_for_candidate_gate": 200
+  },
+  "scientific_boundary": "Exploratory because this candidate family was conceived after earlier single-pair screens. Any survivor requires a new forward paper test beginning after this registration; no profitability claim."
+}
