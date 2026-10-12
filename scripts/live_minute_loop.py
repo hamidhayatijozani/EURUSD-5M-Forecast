@@ -117,17 +117,41 @@ def settle(rows,times,prices,state,code_commit):
         changed=True
     return changed
 
+def _push_commit_with_rebase(max_attempts=4):
+    """Serialize evidence persistence against concurrent main-branch updates."""
+    last_error = ""
+    for attempt in range(max_attempts):
+        subprocess.run(["git", "fetch", "origin", "main"], check=True)
+        rebase = subprocess.run(
+            ["git", "rebase", "origin/main"], capture_output=True, text=True
+        )
+        if rebase.returncode != 0:
+            subprocess.run(["git", "rebase", "--abort"], check=False)
+            detail = (rebase.stderr or rebase.stdout or "unknown rebase conflict")[-1200:]
+            raise RuntimeError(f"LIVE_EVIDENCE_REBASE_CONFLICT: {detail}")
+        push = subprocess.run(
+            ["git", "push", "origin", "HEAD:main"], capture_output=True, text=True
+        )
+        if push.returncode == 0:
+            return
+        last_error = (push.stderr or push.stdout or "push rejected")[-1200:]
+        if attempt + 1 < max_attempts:
+            time.sleep(attempt + 1)
+    raise RuntimeError(f"LIVE_EVIDENCE_PUSH_RETRIES_EXHAUSTED: {last_error}")
+
+
 def git_commit():
     if not os.environ.get("GITHUB_ACTIONS"): return
     subprocess.run(["git","config","user.name","github-actions[bot]"],check=False)
-    subprocess.run(["git","config","user.email","41898282+github-actions[bot]@users.noreply.github.com"],check=False)
+    subprocess.run(["git","config","user.email","41898282+users.noreply.github.com"],check=False)
     evidence_paths=[p for p in (STATE_PATH,PRED_PATH,CLAIM_LEDGER_PATH) if p.exists()]
     if not evidence_paths:return
     subprocess.run(["git","add",*[str(p) for p in evidence_paths]],check=True)
     if subprocess.run(["git","diff","--cached","--quiet"]).returncode==0:return
     subprocess.run(["git","commit","-m","chore: persist live ClaimLab evidence [skip ci]"],check=True)
-    # Never report a successful live cycle when its evidence failed to persist.
-    subprocess.run(["git","push"],check=True)
+    # Fetch/rebase before pushing; other research/maintenance runs may update main.
+    # Any conflict or exhausted retry is a real cycle failure, not a silent success.
+    _push_commit_with_rebase()
 
 def cycle():
     now=datetime.now(timezone.utc); data,times=aligned_closed_1m_series(now); ohlc_map,ohlc_times=aligned_closed_1m_ohlc(now)
@@ -181,6 +205,7 @@ def cycle():
 def main():
     cycles=int(os.environ.get("LIVE_CYCLES","5"))
     successful=0
+    failures=[]
     for i in range(cycles):
         try:
             cycle()
@@ -210,9 +235,11 @@ def main():
                 print("MARKET_CLOSED_EXPECTED: no new forecast emitted; last valid evidence preserved")
                 successful += 1
             else:
+                failures.append(reason)
                 print(f"LIVE_CYCLE_ERROR: {reason}")
         if i+1<cycles:
             time.sleep(SLEEP_SECONDS)
+    if failures:
+        raise SystemExit("LIVE_CYCLE_ERRORS: " + " | ".join(failures[-5:]))
     if successful==0:
         raise SystemExit("NO_SUCCESSFUL_LIVE_CYCLES")
-if __name__=="__main__": main()
