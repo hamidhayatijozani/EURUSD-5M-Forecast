@@ -564,7 +564,8 @@ def cycle():
           "predicted_return":predicted_return,"baseline_prediction":baseline_prediction,
           "algorithms":[{"name":c.name,"score":c.score,"predicted_return":c.predicted_return} for c in candidates],"external_context":context,
           "config_hash":config_hash,"status":"PENDING","cross_asset_enabled":cross_asset_enabled,
-          "cross_asset_contract_version":CROSS_ASSET_CONTRACT_VERSION,"cross_asset_candidates":cross_candidates,"cross_asset_status":cross_status,\n          "cross_asset_available_symbols":sorted(k for k in series if k!="EURUSD"),
+          "cross_asset_contract_version":CROSS_ASSET_CONTRACT_VERSION,"cross_asset_candidates":cross_candidates,"cross_asset_status":cross_status,
+          "cross_asset_available_symbols":sorted(k for k in series if k!="EURUSD"),
           "provider":"Yahoo","source_candle_ts":iso(source_candle_ts),"observed_at":iso(observed_at),
           "data_age_seconds":data_age_seconds,"freshness_limit_seconds":90.0,"freshness_status":"FRESH",
           "engine":f"DEEP-OHLC-PATTERNS+ALGORITHM-FACTORY+{signal.name}+NEWS+TOP50-24H+DATACENTER-POWER+ONLINE-CALIBRATION"}
