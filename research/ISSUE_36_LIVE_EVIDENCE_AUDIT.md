@@ -51,3 +51,54 @@ External context remains degraded in the captured run: news unavailable (`URLErr
 
 Freeze status remains unchanged:
 `FEATURE_FREEZE=ACTIVE`, `MODEL_FREEZE=ACTIVE`, `SIGNAL_FREEZE=ACTIVE`, `RESEARCH_FREEZE=ACTIVE`.
+
+
+## Reopened acceptance follow-up — 2026-10-13 06:26 UTC
+
+This follow-up supersedes the older "final acceptance" status above for the **newly reopened** gate. The earlier three settlements remain valid historical evidence, but do not satisfy the current requirement to settle a new prediction produced after the latest ingestion repair.
+
+### Change and post-merge runtime
+
+- PR [#46](https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/pull/46) merged as `d13672a381f796a759fe7daddbfa71f3e0cd100a`.
+- Exact PR-head CI [run #38356308289](https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/38356308289): **123 tests passed**.
+- Post-merge live workflow [run #38356397344, attempt 1](https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/38356397344): conclusion `success`.
+- Runtime artifact: `live-minute-diagnostics-142`, artifact ID `11793265232`, generated 2026-10-13 06:26:12 UTC.
+- Cycle summary: `cycles=5 forecasts=3 holds=1 no_new_forecast=1 errors=0`.
+- Final runtime audit line: `status=AUDITED, predictions=41, snapshots=41, settlements=34`.
+
+The new provider validator is exercised in real logs: Twelve Data attempts are rejected with `ValueError` or an HTTP error and the feed selector falls through to Yahoo. This demonstrates functioning failover; it does **not** establish Twelve Data as a valid source in this run.
+
+### Independent artifact audit
+
+The downloaded artifact was checked directly against its JSONL files and SQLite database. Results:
+
+- 41 unique prediction IDs in the decision-evidence JSONL and 41 predictions in SQLite; exact ID-set parity.
+- All 41 evidence hashes validate; all 41 snapshot-content hashes validate.
+- The entire decision-evidence JSONL hash chain validates.
+- All 41 snapshot IDs, hashes, and snapshot payloads match between JSONL and SQLite.
+- 34 settlement IDs and payloads match between settlement JSONL and SQLite.
+- Every settlement is at or after its target time, refers to an issued prediction, and references that prediction's recorded snapshot hash.
+- No orphan settlements or duplicate prediction IDs were found in the artifact.
+
+These checks apply to the captured artifact, not to predictions created after the artifact was uploaded.
+
+### Newly issued predictions still pending at capture
+
+At artifact time, the following post-merge predictions had issuance snapshots but had not yet reached their target timestamps:
+
+| Prediction ID | Issued at | Target at | Provider | Capture status |
+|---|---|---|---|---|
+| `live-eurusd-1m-20261013T062200Z` | `2026-10-13T06:23:00Z` | `2026-10-13T06:28:00Z` | `yahoo` | `PENDING` |
+| `live-eurusd-1m-20261013T062300Z` | `2026-10-13T06:24:00Z` | `2026-10-13T06:29:00Z` | `yahoo` | `PENDING` |
+| `live-eurusd-1m-20261013T062400Z` | `2026-10-13T06:25:00Z` | `2026-10-13T06:30:00Z` | `yahoo` | `PENDING` |
+
+Therefore the re-opened Issue #36 acceptance gate remains **PENDING** until a subsequent run settles at least one of these exact new prediction IDs from observed post-target market data and independently audits the updated JSONL/SQLite state. Do not infer settlement just because the target time has passed.
+
+### Predictive-edge and external-context limits
+
+Both forward cross-asset evaluators returned `INSUFFICIENT_DATA` with no surviving candidates. Their preregistered minimums are 1,000 resolved observations and at least 200 trades per candidate; the captured samples are far smaller. No predictive edge or profitability is established.
+
+Context remained degraded: news source unavailable (`URLError`), electricity context unavailable (`NO_API_KEY`), and trader leaderboard unavailable (`NO_SIGNAL_FILE`). These were recorded as unavailable, not treated as successful inputs.
+
+Freeze state remains unchanged:
+`FEATURE_FREEZE=ACTIVE`, `MODEL_FREEZE=ACTIVE`, `SIGNAL_FREEZE=ACTIVE`, `RESEARCH_FREEZE=ACTIVE`.
