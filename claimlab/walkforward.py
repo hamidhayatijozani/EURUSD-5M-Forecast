@@ -105,8 +105,8 @@ def walk_forward(
         )
         if not contiguous:
             continue
-        issued = rows[i]["timestamp"] + timedelta(minutes=5)
-        target = rows[i + 1]["timestamp"] + timedelta(minutes=5)
+        issued = rows[i]["timestamp"] + timedelta(minutes=5, seconds=1)
+        target = rows[i + 1]["timestamp"] + timedelta(minutes=5, seconds=1)
         # returns[j - 1] ends at bar j; these features end at the issued bar.
         feature_returns = returns[i - lookback : i]
         prediction = mean(feature_returns)
@@ -117,7 +117,7 @@ def walk_forward(
             "prediction_id": f"eurusd-m5-{i:08d}",
             "issued_at": _iso(issued),
             "target_at": _iso(target),
-            "feature_cutoff_at": _iso(issued),
+            "feature_cutoff_at": _iso(issued - timedelta(seconds=1)),
             "symbol": "EURUSD",
             "horizon_seconds": int((target - issued).total_seconds()),
             "prediction": prediction,
@@ -171,7 +171,7 @@ def regime_robustness(
     warmup = 0
 
     index_by_issue = {
-        _iso(row["timestamp"] + timedelta(minutes=5)): i
+        _iso(row["timestamp"] + timedelta(minutes=5, seconds=1)): i
         for i, row in enumerate(market_rows)
     }
     for row in observation_rows:

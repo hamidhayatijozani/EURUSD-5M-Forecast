@@ -14,7 +14,7 @@ def make_observation(prediction_id, minute):
     return Observation(
         "claimlab.observation.v1", prediction_id, iso(issued), iso(target), iso(resolved),
         "EURUSD", 300, 0.001, 0.002, 0.0, 0.001, 0.002, True,
-        0.002, 0.00002, 0.0, 0.0, 0.00198, iso(issued), "test", "cfg", "registry"
+        0.002, 0.00002, 0.0, 0.0, 0.00198, iso(issued - timedelta(seconds=1)), "test", "cfg", "registry"
     )
 
 

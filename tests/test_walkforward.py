@@ -33,7 +33,7 @@ def test_walk_forward_never_uses_target_bar_as_feature():
     obs, cfg = walk_forward(rows, code_commit="test")
     assert obs
     first = json.loads(obs[0].canonical())
-    assert first["feature_cutoff_at"] == first["issued_at"]
+    assert first["feature_cutoff_at"] < first["issued_at"]
     assert first["issued_at"] < first["target_at"]
     assert first["horizon_seconds"] == 300
     # The target return is resolved from the target bar, not the following bar.
