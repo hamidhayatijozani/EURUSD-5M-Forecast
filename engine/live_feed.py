@@ -9,11 +9,60 @@ SYMBOLS={"EURUSD":"EURUSD=X","GBPUSD":"GBPUSD=X","USDJPY":"USDJPY=X","DXY":"DX-Y
 BASE="https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=5m&range=1d"
 BASE_1M="https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1m&range=1d"
 
+def _validate_live_1m_provider_result(result):
+    """Reject unusable one-minute providers before selecting the provider.
+
+    The live forecast contract requires at least 30 contiguous, fully closed
+    OHLC candles and a last close no more than 90 seconds old. Doing this
+    inside provider selection allows stale or future-dated responses to fall
+    through to the next configured source instead of forcing a dead-end HOLD.
+    """
+    now = datetime.now(timezone.utc)
+    timestamps = result.get("timestamp", [])
+    quotes = result.get("indicators", {}).get("quote", [])
+    if not timestamps or not quotes:
+        raise ValueError("missing one-minute OHLC payload")
+
+    quote = quotes[0]
+    arrays = [quote.get(key) for key in ("open", "high", "low", "close")]
+    if any(not isinstance(values, list) for values in arrays):
+        raise ValueError("incomplete one-minute OHLC arrays")
+
+    complete = []
+    for index, raw_timestamp in enumerate(timestamps):
+        if any(index >= len(values) or values[index] is None for values in arrays):
+            continue
+        candle_open = datetime.fromtimestamp(float(raw_timestamp), tz=timezone.utc)
+        if candle_open + timedelta(minutes=1) <= now:
+            complete.append(candle_open)
+
+    if not complete:
+        raise ValueError("no closed one-minute OHLC candles")
+
+    latest_close = complete[-1] + timedelta(minutes=1)
+    lag_seconds = (now - latest_close).total_seconds()
+    if lag_seconds > 90:
+        raise ValueError("stale one-minute OHLC candles")
+
+    start = len(complete) - 1
+    while start > 0 and complete[start] - complete[start - 1] == timedelta(minutes=1):
+        start -= 1
+    if len(complete) - start < 30:
+        raise ValueError("insufficient contiguous closed one-minute OHLC candles")
+
+
 def _fetch(symbol,base):
-    # Provider failover is centralized so every provider shares the same
-    # closed-candle, timestamp-alignment, and freshness gates below.
+    # Live freshness validation belongs inside provider selection as well as
+    # downstream feature checks: a stale first provider must not block fallback.
     from engine.market_providers import fetch_chart_result
     interval = "1m" if base == BASE_1M else "5m"
+    if interval == "1m":
+        return fetch_chart_result(
+            symbol,
+            interval,
+            SYMBOLS.get(symbol, symbol),
+            result_validator=_validate_live_1m_provider_result,
+        )
     return fetch_chart_result(symbol, interval, SYMBOLS.get(symbol, symbol))
 
 def fetch_5m_closes(symbol="EURUSD"):

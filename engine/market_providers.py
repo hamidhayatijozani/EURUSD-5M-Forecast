@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from datetime import datetime, timezone
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -125,7 +126,13 @@ def _fetch_twelvedata(symbol, interval):
     return _parse_twelvedata(_get_json(url))
 
 
-def fetch_chart_result(symbol: str, interval: str, yahoo_symbol: str | None = None):
+def fetch_chart_result(
+    symbol: str,
+    interval: str,
+    yahoo_symbol: str | None = None,
+    *,
+    result_validator: Callable[[dict], None] | None = None,
+):
     """Return normalized candle data from the first configured, healthy provider."""
     interval = "1min" if interval in ("1m", "1min") else "5min"
     configured = os.environ.get("LIVE_FEED_PROVIDERS", "").strip()
@@ -156,6 +163,10 @@ def fetch_chart_result(symbol: str, interval: str, yahoo_symbol: str | None = No
             timestamps = result.get("timestamp", [])
             if len(timestamps) < 1 or timestamps != sorted(timestamps):
                 raise ValueError("invalid or unordered candle timestamps")
+            # Live consumers can reject stale/incomplete data here so a
+            # reachable-but-unusable provider does not block provider failover.
+            if result_validator is not None:
+                result_validator(result)
             LAST_PROVIDER_BY_SYMBOL[symbol] = provider
             if failures:
                 print("LIVE_FEED_PROVIDER_FAILOVER:" + json.dumps({
