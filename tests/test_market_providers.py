@@ -1,6 +1,7 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from engine import market_providers as mp
+from engine.live_feed import BASE_1M, _fetch
 
 
 def test_oanda_parser_keeps_only_complete_mid_candles():
@@ -47,3 +48,57 @@ def test_oanda_requires_token_without_disclosing_it(monkeypatch):
         assert str(exc) == "OANDA_NOT_CONFIGURED_FOR_SYMBOL"
     else:
         raise AssertionError("OANDA should not run without credentials")
+
+
+
+def _minute_ohlc_series(last_open, count=36, price=1.1):
+    opens = [last_open - timedelta(minutes=count - index - 1) for index in range(count)]
+    timestamps = [int(value.timestamp()) for value in opens]
+    values = [price] * count
+    return {
+        "timestamp": timestamps,
+        "indicators": {
+            "quote": [{
+                "open": values,
+                "high": values,
+                "low": values,
+                "close": values,
+            }]
+        },
+    }
+
+
+def _unconfigured_provider(*_args):
+    raise RuntimeError("not configured")
+
+
+def test_live_minute_failover_skips_future_only_twelvedata_candles(monkeypatch):
+    now_floor = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    future = _minute_ohlc_series(now_floor + timedelta(hours=3, minutes=35))
+    fresh = _minute_ohlc_series(now_floor - timedelta(minutes=1), price=1.12)
+    monkeypatch.setenv("LIVE_FEED_PROVIDERS", "oanda,twelvedata,yahoo")
+    monkeypatch.setattr(mp, "_fetch_oanda", _unconfigured_provider)
+    monkeypatch.setattr(mp, "_fetch_twelvedata", lambda *_args: future)
+    monkeypatch.setattr(mp, "_fetch_yahoo", lambda *_args: fresh)
+    mp.LAST_PROVIDER_BY_SYMBOL.clear()
+
+    result = _fetch("EURUSD", BASE_1M)
+
+    assert result == fresh
+    assert mp.LAST_PROVIDER_BY_SYMBOL["EURUSD"] == "yahoo"
+
+
+def test_live_minute_failover_skips_stale_twelvedata_candles(monkeypatch):
+    now_floor = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    stale = _minute_ohlc_series(now_floor - timedelta(minutes=31))
+    fresh = _minute_ohlc_series(now_floor - timedelta(minutes=1), price=1.12)
+    monkeypatch.setenv("LIVE_FEED_PROVIDERS", "oanda,twelvedata,yahoo")
+    monkeypatch.setattr(mp, "_fetch_oanda", _unconfigured_provider)
+    monkeypatch.setattr(mp, "_fetch_twelvedata", lambda *_args: stale)
+    monkeypatch.setattr(mp, "_fetch_yahoo", lambda *_args: fresh)
+    mp.LAST_PROVIDER_BY_SYMBOL.clear()
+
+    result = _fetch("EURUSD", BASE_1M)
+
+    assert result == fresh
+    assert mp.LAST_PROVIDER_BY_SYMBOL["EURUSD"] == "yahoo"
