@@ -1,0 +1,65 @@
+name: Twelve Data EURUSD ingestion
+
+on:
+  pull_request:
+    paths:
+      - "claimlab/twelvedata.py"
+      - "tests/test_twelvedata_ingestion.py"
+      - "scripts/twelvedata_live_probe.py"
+      - "docs/TWELVE_DATA_INGESTION.md"
+      - ".github/workflows/twelvedata-ingestion.yml"
+      - "requirements.txt"
+      - "pyproject.toml"
+  workflow_dispatch:
+    inputs:
+      run_live_probe:
+        description: "Fetch one real EUR/USD 5-minute candle (requires TWELVE_DATA_API_KEY repository secret)"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-tests:
+    name: Unit tests with synthetic fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Test Twelve Data adapter
+        run: python -m pytest -q tests/test_twelvedata_ingestion.py
+      - name: Run full test suite
+        run: python -m pytest -q
+
+  live-probe:
+    name: Optional real-provider probe
+    if: github.event_name == 'workflow_dispatch' && inputs.run_live_probe
+    runs-on: ubuntu-latest
+    env:
+      TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Require configured key
+        run: test -n "$TWELVE_DATA_API_KEY"
+      - name: Fetch one real EUR/USD candle
+        run: python scripts/twelvedata_live_probe.py
+      - name: Upload market-ingestion evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twelvedata-market-ingestion-evidence
+          path: evidence/claimlab-market/twelvedata-latest.json
+          if-no-files-found: warn
+          retention-days: 30
