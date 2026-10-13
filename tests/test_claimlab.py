@@ -16,7 +16,7 @@ def prediction():
         "prediction_id": "p-001",
         "issued_at": "2026-10-06T10:00:00Z",
         "target_at": "2026-10-06T10:05:00Z",
-        "feature_cutoff_at": "2026-10-06T10:00:00Z",
+        "feature_cutoff_at": "2026-10-06T09:59:59Z",
         "symbol": "EURUSD",
         "horizon_seconds": 300,
         "prediction": 0.0010,
@@ -40,8 +40,9 @@ def test_resolver_enforces_temporal_boundary():
     "issued,target,resolved,cutoff",
     [
         ("2026-10-06T10:00:00Z", "2026-10-06T10:05:00Z", "2026-10-06T10:05:00Z", "2026-10-06T10:00:01Z"),
-        ("2026-10-06T10:06:00Z", "2026-10-06T10:05:00Z", "2026-10-06T10:05:00Z", "2026-10-06T10:00:00Z"),
-        ("2026-10-06T10:00:00Z", "2026-10-06T10:05:00Z", "2026-10-06T10:04:00Z", "2026-10-06T10:00:00Z"),
+        ("2026-10-06T10:00:00Z", "2026-10-06T10:05:00Z", "2026-10-06T10:05:00Z", "2026-10-06T10:00:00Z"),
+        ("2026-10-06T10:06:00Z", "2026-10-06T10:05:00Z", "2026-10-06T10:05:00Z", "2026-10-06T09:59:00Z"),
+        ("2026-10-06T10:00:00Z", "2026-10-06T10:05:00Z", "2026-10-06T10:04:00Z", "2026-10-06T09:59:00Z"),
     ],
 )
 def test_temporal_violations_are_invalid(issued, target, resolved, cutoff):
@@ -91,6 +92,10 @@ def test_arena_and_preregistered_verdict():
     for i in range(100):
         rows.append({
             "status": "VALID",
+            "feature_cutoff_at": "2026-10-06T09:59:59Z",
+            "issued_at": "2026-10-06T10:00:00Z",
+            "target_at": "2026-10-06T10:05:00Z",
+            "resolved_at": "2026-10-06T10:05:00Z",
             "actual": 1.0,
             "prediction": 1.0,
             "baseline_prediction": 0.0,
@@ -99,7 +104,38 @@ def test_arena_and_preregistered_verdict():
         })
     stats = score(rows)
     assert stats["n"] == 100
+    assert stats["temporal_rejected"] == 0
     assert stats["mae_delta"] == pytest.approx(1.0)
     assert verdict(stats, min_n=100) == "SURVIVES"
     assert verdict({**stats, "mae_delta_ci_lower": 0.0}, min_n=100) == "KILLED"
     assert verdict({**stats, "n": 99}, min_n=100) == "INSUFFICIENT_DATA"
+
+
+def test_arena_rejects_equal_cutoff_and_issue_timestamp():
+    row = {
+        "status": "VALID",
+        "feature_cutoff_at": "2026-10-06T10:00:00Z",
+        "issued_at": "2026-10-06T10:00:00Z",
+        "target_at": "2026-10-06T10:05:00Z",
+        "resolved_at": "2026-10-06T10:05:00Z",
+        "actual": 1.0,
+        "prediction": 1.0,
+        "baseline_prediction": 0.0,
+        "friction_adjusted_return": 0.9,
+        "direction_hit": True,
+    }
+    stats = score([row])
+    assert stats["n"] == 0
+    assert stats["temporal_rejected"] == 1
+    assert stats["status"] == "INSUFFICIENT_DATA"
+
+
+def test_arena_rejects_rows_missing_temporal_evidence():
+    row = {
+        "status": "VALID", "actual": 1.0, "prediction": 1.0,
+        "baseline_prediction": 0.0, "friction_adjusted_return": 0.9,
+        "direction_hit": True,
+    }
+    stats = score([row])
+    assert stats["n"] == 0
+    assert stats["status"] == "INSUFFICIENT_DATA"
