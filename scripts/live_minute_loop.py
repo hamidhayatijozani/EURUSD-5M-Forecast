@@ -1,5 +1,5 @@
 """Every-minute real-market 5-minute forecasting with exact-target resolution and ClaimLab evidence."""
-import hashlib, json, os, subprocess, time
+import hashlib, json, os, subprocess, time, sqlite3, tempfile
 from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
 from pathlib import Path
@@ -16,6 +16,7 @@ from claimlab.resolver import resolve
 from claimlab.schema import Observation
 from engine.forecast_evidence import build_decision_evidence, verify_decision_evidence
 from claimlab.live_evidence_bridge import (persist_issue, persist_settlement, audit_stores, EVIDENCE_JSONL, SETTLEMENTS_JSONL, SQLITE_PATH)
+from claimlab.evidence_store import JsonLedger, LedgerDB, canonical_json
 
 STATE_PATH=Path("research/live_state.json")
 PRED_PATH=Path("research/live_predictions.jsonl")
@@ -366,9 +367,13 @@ def settle(rows,times,prices,state,code_commit):
         changed=True
     return changed
 
-EVIDENCE_RELATIVE_PATHS=(
+# Keep the four legacy text ledgers on their existing merge path. The
+# bridge JSONL and SQLite stores are reconciled together as one unit below.
+EVIDENCE_TEXT_RELATIVE_PATHS=(
     str(STATE_PATH),str(PRED_PATH),str(CLAIM_LEDGER_PATH),str(CROSS_ASSET_LEDGER_PATH)
 )
+LIVE_BRIDGE_TEXT_PATHS=(str(EVIDENCE_JSONL),str(SETTLEMENTS_JSONL))
+EVIDENCE_RELATIVE_PATHS=EVIDENCE_TEXT_RELATIVE_PATHS+LIVE_BRIDGE_TEXT_PATHS+(str(SQLITE_PATH),)
 
 
 def _parse_jsonl_text(content):
@@ -474,18 +479,271 @@ def _merge_cross_asset_ledger_texts(local_text,remote_text):
     _read_cross_asset_ledger()
 
 
+def _parse_utc_timestamp(value):
+    parsed=datetime.fromisoformat(str(value).replace("Z","+00:00"))
+    if parsed.tzinfo is None:
+        raise RuntimeError("LIVE_BRIDGE_TIMESTAMP_MISSING_TIMEZONE")
+    return parsed.astimezone(timezone.utc)
+
+
+def _read_live_bridge_db_snapshot(db_path):
+    """Read bridge SQLite as a validated snapshot without mutating its source."""
+    path=Path(db_path)
+    empty={"predictions":{},"snapshots":{},"settlements":{}}
+    if not path.exists() or path.stat().st_size==0:
+        return empty
+    connection=None
+    try:
+        connection=sqlite3.connect(str(path))
+        connection.row_factory=sqlite3.Row
+        connection.execute("PRAGMA query_only=ON")
+        tables={row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()}
+        required={"predictions","snapshots","settlements"}
+        if not required.issubset(tables):
+            if not tables:
+                return empty
+            raise RuntimeError("LIVE_BRIDGE_SQLITE_SCHEMA_INCOMPLETE")
+        snapshot={
+            "predictions":{},
+            "snapshots":{},
+            "settlements":{},
+        }
+        for row in connection.execute(
+            "SELECT prediction_id,evidence_hash,payload_json FROM predictions"
+        ).fetchall():
+            pid=row["prediction_id"]
+            if pid in snapshot["predictions"]:
+                raise RuntimeError(f"LIVE_BRIDGE_SQLITE_DUPLICATE_PREDICTION:{pid}")
+            snapshot["predictions"][pid]={
+                "evidence_hash":row["evidence_hash"],
+                "payload":json.loads(row["payload_json"]),
+            }
+        for row in connection.execute(
+            "SELECT prediction_id,snapshot_sha256,payload_json FROM snapshots"
+        ).fetchall():
+            pid=row["prediction_id"]
+            if pid in snapshot["snapshots"]:
+                raise RuntimeError(f"LIVE_BRIDGE_SQLITE_DUPLICATE_SNAPSHOT:{pid}")
+            snapshot["snapshots"][pid]={
+                "snapshot_sha256":row["snapshot_sha256"],
+                "payload":json.loads(row["payload_json"]),
+            }
+        for row in connection.execute(
+            "SELECT prediction_id,settled_at,payload_json FROM settlements"
+        ).fetchall():
+            pid=row["prediction_id"]
+            if pid in snapshot["settlements"]:
+                raise RuntimeError(f"LIVE_BRIDGE_SQLITE_DUPLICATE_SETTLEMENT:{pid}")
+            snapshot["settlements"][pid]={
+                "settled_at":row["settled_at"],
+                "payload":json.loads(row["payload_json"]),
+            }
+        return snapshot
+    except (sqlite3.DatabaseError,json.JSONDecodeError) as exc:
+        raise RuntimeError(f"LIVE_BRIDGE_SQLITE_READ_INVALID:{path.name}:{type(exc).__name__}") from exc
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+def _read_remote_live_bridge_db_snapshot(db_path):
+    """Read the remote branch's binary SQLite blob before resetting the worktree."""
+    result=subprocess.run(
+        ["git","show",f"origin/main:{db_path}"],
+        capture_output=True,
+    )
+    if result.returncode!=0:
+        stderr=result.stderr.decode("utf-8",errors="replace")
+        if "does not exist" in stderr or "exists on disk, but not in" in stderr:
+            return {"predictions":{},"snapshots":{},"settlements":{}}
+        raise RuntimeError(f"LIVE_BRIDGE_REMOTE_SQLITE_READ_FAILED:{stderr[-500:]}")
+    with tempfile.TemporaryDirectory(prefix="live-bridge-remote-") as directory:
+        remote_path=Path(directory)/Path(db_path).name
+        remote_path.write_bytes(result.stdout)
+        return _read_live_bridge_db_snapshot(remote_path)
+
+
+def _validate_live_bridge_source(evidence_text,settlement_text,db_snapshot,label):
+    """Validate one side independently before unioning concurrent evidence."""
+    evidence_rows=_parse_jsonl_text(evidence_text)
+    settlement_rows=_parse_jsonl_text(settlement_text)
+    with tempfile.TemporaryDirectory(prefix="live-bridge-ledger-") as directory:
+        path=Path(directory)/"live_decision_evidence.jsonl"
+        path.write_text(evidence_text,encoding="utf-8")
+        if not JsonLedger(path).verify():
+            raise RuntimeError(f"LIVE_BRIDGE_{label}_JSONL_CHAIN_INVALID")
+    evidence_by_id={}
+    for raw in evidence_rows:
+        pid=raw.get("prediction_id")
+        if not pid or pid in evidence_by_id:
+            raise RuntimeError(f"LIVE_BRIDGE_{label}_DUPLICATE_OR_MISSING_PREDICTION_ID")
+        record={key:value for key,value in raw.items() if key not in ("previous_hash","ledger_hash")}
+        evidence_by_id[pid]=record
+    prediction_ids=set(evidence_by_id)
+    if prediction_ids!=set(db_snapshot["predictions"]):
+        raise RuntimeError(f"LIVE_BRIDGE_{label}_SQLITE_PREDICTION_ID_PARITY_FAILURE")
+    if prediction_ids!=set(db_snapshot["snapshots"]):
+        raise RuntimeError(f"LIVE_BRIDGE_{label}_SQLITE_SNAPSHOT_ID_PARITY_FAILURE")
+    for pid,record in evidence_by_id.items():
+        db_prediction=db_snapshot["predictions"][pid]
+        if record.get("evidence_hash")!=db_prediction["evidence_hash"]:
+            raise RuntimeError(f"LIVE_BRIDGE_{label}_SQLITE_EVIDENCE_HASH_MISMATCH:{pid}")
+        if canonical_json(record)!=canonical_json(db_prediction["payload"]):
+            raise RuntimeError(f"LIVE_BRIDGE_{label}_SQLITE_PREDICTION_PAYLOAD_MISMATCH:{pid}")
+        snapshot=record.get("decision_snapshot")
+        db_snapshot_row=db_snapshot["snapshots"][pid]
+        if not isinstance(snapshot,dict):
+            raise RuntimeError(f"LIVE_BRIDGE_{label}_SNAPSHOT_MISSING:{pid}")
+        if record.get("snapshot_sha256")!=snapshot.get("snapshot_sha256"):
+            raise RuntimeError(f"LIVE_BRIDGE_{label}_SNAPSHOT_REFERENCE_MISMATCH:{pid}")
+        if db_snapshot_row["snapshot_sha256"]!=snapshot.get("snapshot_sha256"):
+            raise RuntimeError(f"LIVE_BRIDGE_{label}_SQLITE_SNAPSHOT_HASH_MISMATCH:{pid}")
+        if canonical_json(db_snapshot_row["payload"])!=canonical_json(snapshot):
+            raise RuntimeError(f"LIVE_BRIDGE_{label}_SQLITE_SNAPSHOT_PAYLOAD_MISMATCH:{pid}")
+
+    settlement_by_id={}
+    for row in settlement_rows:
+        pid=row.get("prediction_id")
+        if not pid or pid in settlement_by_id:
+            raise RuntimeError(f"LIVE_BRIDGE_{label}_DUPLICATE_OR_MISSING_SETTLEMENT_ID")
+        settlement_by_id[pid]=row
+    if set(settlement_by_id)!=set(db_snapshot["settlements"]):
+        raise RuntimeError(f"LIVE_BRIDGE_{label}_SQLITE_SETTLEMENT_ID_PARITY_FAILURE")
+    for pid,row in settlement_by_id.items():
+        if pid not in evidence_by_id:
+            raise RuntimeError(f"LIVE_BRIDGE_{label}_ORPHAN_SETTLEMENT:{pid}")
+        db_settlement=db_snapshot["settlements"][pid]
+        if canonical_json(row)!=canonical_json(db_settlement["payload"]):
+            raise RuntimeError(f"LIVE_BRIDGE_{label}_SQLITE_SETTLEMENT_PAYLOAD_MISMATCH:{pid}")
+        settled_at=row.get("settled_at")
+        target_at=row.get("target_at")
+        if not settled_at or not target_at:
+            raise RuntimeError(f"LIVE_BRIDGE_{label}_SETTLEMENT_TIME_MISSING:{pid}")
+        if _parse_utc_timestamp(settled_at)<_parse_utc_timestamp(target_at):
+            raise RuntimeError(f"LIVE_BRIDGE_{label}_SETTLEMENT_BEFORE_TARGET:{pid}")
+        if _parse_utc_timestamp(db_settlement["settled_at"])!=_parse_utc_timestamp(settled_at):
+            raise RuntimeError(f"LIVE_BRIDGE_{label}_SQLITE_SETTLED_AT_MISMATCH:{pid}")
+        if row.get("decision_evidence_sha256")!=evidence_by_id[pid].get("snapshot_sha256"):
+            raise RuntimeError(f"LIVE_BRIDGE_{label}_SETTLEMENT_SNAPSHOT_REFERENCE_MISMATCH:{pid}")
+    return {
+        "predictions":list(evidence_by_id.values()),
+        "settlements":list(settlement_by_id.values()),
+    }
+
+
+def _merge_live_bridge_prediction_records(local_records,remote_records):
+    merged={}
+    for record in list(remote_records)+list(local_records):
+        pid=record.get("prediction_id")
+        if not pid:
+            raise RuntimeError("LIVE_BRIDGE_PREDICTION_ID_REQUIRED")
+        existing=merged.get(pid)
+        if existing is not None and canonical_json(existing)!=canonical_json(record):
+            raise RuntimeError(f"LIVE_BRIDGE_IMMUTABLE_PREDICTION_CONFLICT:{pid}")
+        merged[pid]=record
+    return sorted(merged.values(),key=lambda row:(row.get("issued_at",""),row.get("prediction_id","")))
+
+
+def _merge_live_bridge_settlement_records(local_records,remote_records):
+    merged={}
+    for record in list(remote_records)+list(local_records):
+        pid=record.get("prediction_id")
+        if not pid:
+            raise RuntimeError("LIVE_BRIDGE_SETTLEMENT_ID_REQUIRED")
+        existing=merged.get(pid)
+        if existing is not None and canonical_json(existing)!=canonical_json(record):
+            raise RuntimeError(f"LIVE_BRIDGE_IMMUTABLE_SETTLEMENT_CONFLICT:{pid}")
+        merged[pid]=record
+    return sorted(merged.values(),key=lambda row:(row.get("settled_at",""),row.get("prediction_id","")))
+
+
+def _write_live_bridge_store(prediction_records,settlement_records,*,evidence_path=None,settlement_path=None,sqlite_path=None):
+    """Rebuild JSONL hash chain and SQLite atomically from validated immutable records."""
+    evidence_path=Path(evidence_path or EVIDENCE_JSONL)
+    settlement_path=Path(settlement_path or SETTLEMENTS_JSONL)
+    sqlite_path=Path(sqlite_path or SQLITE_PATH)
+    evidence_path.parent.mkdir(parents=True,exist_ok=True)
+    settlement_path.parent.mkdir(parents=True,exist_ok=True)
+    sqlite_path.parent.mkdir(parents=True,exist_ok=True)
+    evidence_path.unlink(missing_ok=True)
+    ledger=JsonLedger(evidence_path)
+    ordered_predictions=sorted(prediction_records,key=lambda row:(row.get("issued_at",""),row.get("prediction_id","")))
+    for record in ordered_predictions:
+        normalized={key:value for key,value in record.items() if key not in ("previous_hash","ledger_hash")}
+        ledger.append(normalized)
+    if not ledger.verify():
+        raise RuntimeError("LIVE_BRIDGE_REBUILT_JSONL_CHAIN_INVALID")
+    ordered_settlements=sorted(settlement_records,key=lambda row:(row.get("settled_at",""),row.get("prediction_id","")))
+    settlement_path.write_text(
+        "".join(canonical_json(row)+"\n" for row in ordered_settlements),
+        encoding="utf-8",
+    )
+    sqlite_path.unlink(missing_ok=True)
+    db=LedgerDB(sqlite_path)
+    try:
+        for record in ordered_predictions:
+            normalized={key:value for key,value in record.items() if key not in ("previous_hash","ledger_hash")}
+            db.insert_prediction(normalized)
+            db.insert_snapshot(normalized["prediction_id"],normalized["decision_snapshot"])
+        for settlement in ordered_settlements:
+            db.insert_settlement(
+                settlement["prediction_id"],
+                settlement,
+                settled_at=settlement["settled_at"],
+            )
+    finally:
+        db.close()
+    if evidence_path.name!="live_decision_evidence.jsonl" or settlement_path.name!="live_decision_settlements.jsonl" or sqlite_path.name!="live_evidence.db":
+        raise RuntimeError("LIVE_BRIDGE_AUDIT_REQUIRES_CANONICAL_FILENAMES")
+    audit=audit_stores(evidence_dir=evidence_path.parent)
+    expected={"status":"AUDITED","predictions":len(ordered_predictions),"snapshots":len(ordered_predictions),"settlements":len(ordered_settlements)}
+    if audit!=expected:
+        raise RuntimeError(f"LIVE_BRIDGE_REBUILT_STORE_AUDIT_MISMATCH:{audit}")
+    return audit
+
+
+def _git_show_text_or_empty(path):
+    result=subprocess.run(["git","show",f"origin/main:{path}"],capture_output=True,text=True)
+    if result.returncode==0:
+        return result.stdout
+    if "does not exist" in (result.stderr or ""):
+        return ""
+    raise RuntimeError(f"LIVE_EVIDENCE_REMOTE_TEXT_READ_FAILED:{path}:{(result.stderr or '')[-400:]}")
+
+
 def _merge_concurrent_evidence_to_main():
-    local_text={path:(Path(path).read_text(encoding="utf-8") if Path(path).exists() else "") for path in EVIDENCE_RELATIVE_PATHS}
-    remote_text={}
-    for path in EVIDENCE_RELATIVE_PATHS:
-        result=subprocess.run(["git","show",f"origin/main:{path}"],capture_output=True,text=True)
-        remote_text[path]=result.stdout if result.returncode==0 else ""
+    # Capture and validate both bridge stores before reset --hard destroys local data.
+    local_evidence_text=Path(EVIDENCE_JSONL).read_text(encoding="utf-8") if Path(EVIDENCE_JSONL).exists() else ""
+    local_settlement_text=Path(SETTLEMENTS_JSONL).read_text(encoding="utf-8") if Path(SETTLEMENTS_JSONL).exists() else ""
+    local_db_snapshot=_read_live_bridge_db_snapshot(SQLITE_PATH)
+    local_bridge=_validate_live_bridge_source(
+        local_evidence_text,local_settlement_text,local_db_snapshot,"LOCAL"
+    )
+    remote_evidence_text=_git_show_text_or_empty(str(EVIDENCE_JSONL))
+    remote_settlement_text=_git_show_text_or_empty(str(SETTLEMENTS_JSONL))
+    remote_db_snapshot=_read_remote_live_bridge_db_snapshot(str(SQLITE_PATH))
+    remote_bridge=_validate_live_bridge_source(
+        remote_evidence_text,remote_settlement_text,remote_db_snapshot,"REMOTE"
+    )
+    merged_predictions=_merge_live_bridge_prediction_records(
+        local_bridge["predictions"],remote_bridge["predictions"]
+    )
+    merged_settlements=_merge_live_bridge_settlement_records(
+        local_bridge["settlements"],remote_bridge["settlements"]
+    )
+
+    # Existing non-bridge evidence ledgers have their own domain-specific merge.
+    local_text={path:(Path(path).read_text(encoding="utf-8") if Path(path).exists() else "") for path in EVIDENCE_TEXT_RELATIVE_PATHS}
+    remote_text={path:_git_show_text_or_empty(path) for path in EVIDENCE_TEXT_RELATIVE_PATHS}
     subprocess.run(["git","reset","--hard","origin/main"],check=True)
     predictions=_merge_prediction_texts(local_text[str(PRED_PATH)],remote_text[str(PRED_PATH)])
     PRED_PATH.parent.mkdir(parents=True,exist_ok=True)
     PRED_PATH.write_text("".join(json.dumps(row,sort_keys=True)+chr(10) for row in predictions),encoding="utf-8")
     _merge_claim_ledger_texts(local_text[str(CLAIM_LEDGER_PATH)],remote_text[str(CLAIM_LEDGER_PATH)])
     _merge_cross_asset_ledger_texts(local_text[str(CROSS_ASSET_LEDGER_PATH)],remote_text[str(CROSS_ASSET_LEDGER_PATH)])
+    _write_live_bridge_store(merged_predictions,merged_settlements)
     local_state=json.loads(local_text[str(STATE_PATH)]) if local_text[str(STATE_PATH)].strip() else {}
     remote_state=json.loads(remote_text[str(STATE_PATH)]) if remote_text[str(STATE_PATH)].strip() else {}
     state=max((local_state,remote_state),key=lambda item:item.get("last_cycle_at",""),default={})
