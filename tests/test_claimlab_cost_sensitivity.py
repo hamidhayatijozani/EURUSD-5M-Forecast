@@ -6,6 +6,10 @@ from claimlab.walkforward import cost_sensitivity
 def _row(prediction, actual, baseline=0.0):
     return {
         "status": "VALID",
+        "feature_cutoff_at": "2026-10-06T09:59:59Z",
+        "issued_at": "2026-10-06T10:00:00Z",
+        "target_at": "2026-10-06T10:05:00Z",
+        "resolved_at": "2026-10-06T10:05:00Z",
         "prediction": prediction,
         "baseline_prediction": baseline,
         "actual": actual,
