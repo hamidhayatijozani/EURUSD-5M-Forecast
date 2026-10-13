@@ -32,7 +32,7 @@ def _observation(prediction_id, issued_minute):
         slippage_cost=0.0,
         commission_cost=0.0,
         friction_adjusted_return=0.00018,
-        feature_cutoff_at=issued,
+        feature_cutoff_at=(datetime.fromisoformat(issued) - timedelta(seconds=1)).isoformat(),
         code_commit="abc123",
         config_hash="config",
         claim_registry_hash="registry",
