@@ -7,7 +7,7 @@ def ts(t): return t.isoformat()
 
 def test_temporal_contract_is_hard_invariant():
     t=datetime(2026,1,1,tzinfo=timezone.utc)
-    assert validate_window(ts(t),ts(t+timedelta(minutes=5)),ts(t+timedelta(minutes=6)),ts(t))
+    assert validate_window(ts(t),ts(t+timedelta(minutes=5)),ts(t+timedelta(minutes=6)),ts(t-timedelta(seconds=1)))
     try:
         validate_window(ts(t),ts(t+timedelta(minutes=5)),ts(t+timedelta(minutes=6)),ts(t+timedelta(seconds=1)))
     except ValueError:
@@ -19,7 +19,7 @@ def test_resolver_preserves_target_actual_not_later_price():
     t=datetime(2026,1,1,tzinfo=timezone.utc)
     p={"schema_version":"claimlab.observation.v1","prediction_id":"p1",
        "issued_at":ts(t),"target_at":ts(t+timedelta(minutes=5)),
-       "feature_cutoff_at":ts(t),"symbol":"EURUSD","horizon_seconds":300,
+       "feature_cutoff_at":ts(t-timedelta(seconds=1)),"symbol":"EURUSD","horizon_seconds":300,
        "prediction":0.001}
     r=resolve(p,actual=0.0004,baseline_prediction=0.0,
               resolved_at=ts(t+timedelta(minutes=7)))
