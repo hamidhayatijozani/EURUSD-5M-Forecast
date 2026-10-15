@@ -164,7 +164,7 @@ def evaluate(samples):
                 "test_start": _utc(test[0]["timestamp"]),
                 "test_end": _utc(test[-1]["timestamp"]),
                 "samples_total": len(test),
-                "signals_total": len(test),
+                "signals_total": sum(1 for p in probs if p > .55 or p < .45),
                 "signals_filtered_80": filtered["trades"],
                 "filtered_metrics": filtered,
                 "hit_rate_80_bucket": high["hit_rate"],
