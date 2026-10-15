@@ -215,6 +215,7 @@ def main():
             result.update(verdict="INSUFFICIENT_DATA", reason="NO_VALID_TEST_FOLDS")
         else:
             total_samples = sum(f["samples_total"] for f in folds)
+            total_signals = sum(f["signals_total"] for f in folds)
             filtered_count = sum(f["signals_filtered_80"] for f in folds)
             high_count = sum(f["count_80_bucket"] for f in folds)
             low_count = sum(f["count_20_bucket"] for f in folds)
@@ -237,7 +238,7 @@ def main():
                 hac = sum((x["hit_rate_after_cost"] or 0) * x["count"] for x in bucket_folds) / n if n else None
                 calibration_rows.append({"bucket": label, "count": n, "hit_rate": hr, "hit_rate_after_cost": hac})
             result["aggregate"] = {
-                "signals_total": total_samples,
+                "signals_total": total_signals,
                 "signals_filtered_80": filtered_count,
                 "signals_per_day_after_filter": filtered_count / calendar_days,
                 "hit_rate_80_bucket": high_hits / high_count if high_count else None,
