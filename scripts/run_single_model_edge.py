@@ -211,8 +211,8 @@ def main():
         folds = evaluate(samples)
         result["valid_samples"] = len(samples)
         result["folds"] = folds
-        if len(folds) < 3:
-            result.update(verdict="INSUFFICIENT_DATA", reason="FEWER_THAN_THREE_VALID_TEST_FOLDS")
+        if not folds:
+            result.update(verdict="INSUFFICIENT_DATA", reason="NO_VALID_TEST_FOLDS")
         else:
             total_samples = sum(f["samples_total"] for f in folds)
             filtered_count = sum(f["signals_filtered_80"] for f in folds)
@@ -253,7 +253,10 @@ def main():
                 "test_calendar_days": calendar_days,
             }
             agg = result["aggregate"]
-            if high_count < int(registration["minimum_high_confidence_up_signals"]):
+            if len(folds) < 3:
+                result["verdict"] = "INSUFFICIENT_DATA"
+                result["reason"] = "FEWER_THAN_THREE_VALID_TEST_FOLDS"
+            elif high_count < int(registration["minimum_high_confidence_up_signals"]):
                 result["verdict"] = "INSUFFICIENT_DATA"
                 result["reason"] = "FEWER_THAN_50_SIGNALS_IN_P_UP_GE_0_80_BUCKET"
             elif agg["hit_rate_80_after_cost"] is not None and agg["hit_rate_80_after_cost"] > .60:
