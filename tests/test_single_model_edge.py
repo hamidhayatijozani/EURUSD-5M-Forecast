@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from scripts.run_single_model_edge import FEATURES, make_samples
+from scripts.run_single_model_edge import FEATURES, make_samples, signal_from_probability
 
 
 def _rows(n=100):
@@ -39,3 +39,13 @@ def test_gap_bar_is_not_used_as_a_next_five_minute_target():
     issued_bar_times = {s["timestamp"] for s in samples}
     assert rows[61]["timestamp"] not in issued_bar_times
     assert rows[62]["timestamp"] not in issued_bar_times
+
+
+def test_filter_80_threshold_boundaries():
+    assert signal_from_probability(0.80) == 1
+    assert signal_from_probability(0.81) == 1
+    assert signal_from_probability(0.20) == -1
+    assert signal_from_probability(0.19) == -1
+    assert signal_from_probability(0.799999) == 0
+    assert signal_from_probability(0.50) == 0
+    assert signal_from_probability(0.200001) == 0
