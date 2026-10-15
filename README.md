@@ -73,6 +73,8 @@ It is disabled by default. To enable the optional fetch in a deployment, set
 the deployment environment (never commit the key). The caller receives
 `DISABLED`, `UNAVAILABLE:...`, or `OK` metadata. Provider errors are
 contained and must not stop the EUR/USD feed or forecast pipeline. The adapter
-is not yet wired into the forecast scoring/fusion path; schema review and
-evidence-backed evaluation are required before using any field as a model
-feature. No live API call or test execution is claimed by this change.
+is attached to the external-context payload as a separate `coinversa_context`
+field; it is deliberately excluded from directional score fusion and EUR/USD
+candle ingestion. The response schema still needs review and evidence-backed
+evaluation before any field can be used as a model feature. No live API call
+or test execution is claimed by this change.
