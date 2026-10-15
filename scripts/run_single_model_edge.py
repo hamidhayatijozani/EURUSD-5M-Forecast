@@ -78,6 +78,7 @@ def make_samples(rows):
 
 def _metrics(samples, positions):
     trades = []
+    daily_net = {}
     daily = {}
     for s, pos in zip(samples, positions):
         if pos == 0:
@@ -86,13 +87,15 @@ def _metrics(samples, positions):
         trades.append((net, int(net > 0)))
         day = s["target_timestamp"].date().isoformat()
         daily[day] = daily.get(day, 0) + 1
+        daily_net[day] = daily_net.get(day, 0.0) + net
     if not trades:
         return {"trades": 0, "hit_rate_after_cost": None, "net_return_sum": 0.0,
                 "net_sharpe_after_cost": None, "signals_per_day_max": max(daily.values(), default=0)}
     nets = [x[0] for x in trades]
-    avg = sum(nets) / len(nets)
-    variance = sum((x - avg) ** 2 for x in nets) / max(len(nets) - 1, 1)
-    sharpe = (avg / math.sqrt(variance) * math.sqrt(252 * 288)) if variance > 0 else None
+    daily_values = list(daily_net.values())
+    avg = sum(daily_values) / len(daily_values)
+    variance = sum((x - avg) ** 2 for x in daily_values) / max(len(daily_values) - 1, 1)
+    sharpe = (avg / math.sqrt(variance) * math.sqrt(252)) if variance > 0 else None
     return {
         "trades": len(trades),
         "hit_rate_after_cost": sum(x[1] for x in trades) / len(trades),
@@ -100,7 +103,6 @@ def _metrics(samples, positions):
         "net_sharpe_after_cost": sharpe,
         "signals_per_day_max": max(daily.values(), default=0),
     }
-
 
 def evaluate(samples):
     """Fixed 90-day initial train, then non-overlapping 30-day test folds."""
