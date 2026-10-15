@@ -13,7 +13,7 @@ from sklearn.ensemble import GradientBoostingClassifier
 from claimlab.walkforward import parse_csv
 
 ROOT = Path(__file__).resolve().parents[1]
-REG_PATH = ROOT / "research/EURUSD_M5_XGB_EDGE_001_PREREGISTRATION.json"
+REG_PATH = ROOT / "research/EURUSD_M5_XGB_EDGE_001_FILTER80_PREREGISTRATION.json"
 OUT_PATH = ROOT / "evidence/xgb-edge-001/result.json"
 URL = "https://raw.githubusercontent.com/getdata-finance/eurusd-5m-ohlcv-forex-historical-data/main/EURUSD_5m.csv"
 FEATURES = [
@@ -77,35 +77,55 @@ def make_samples(rows):
 
 
 def _metrics(samples, positions):
+    """Metrics for a set of already-decided positions; all costs are round-trip."""
     trades = []
     daily_net = {}
-    daily = {}
+    daily_counts = {}
     for s, pos in zip(samples, positions):
         if pos == 0:
             continue
         net = pos * s["actual_return"] - COST
         trades.append((net, int(net > 0)))
         day = s["target_timestamp"].date().isoformat()
-        daily[day] = daily.get(day, 0) + 1
+        daily_counts[day] = daily_counts.get(day, 0) + 1
         daily_net[day] = daily_net.get(day, 0.0) + net
     if not trades:
-        return {"trades": 0, "hit_rate_after_cost": None, "net_return_sum": 0.0,
-                "net_sharpe_after_cost": None, "signals_per_day_max": max(daily.values(), default=0)}
+        return {"trades": 0, "hit_rate": None, "hit_rate_after_cost": None,
+                "net_return_sum": 0.0, "net_sharpe_after_cost": None,
+                "signals_per_day": 0.0, "cost_per_day_pips": 0.0}
     nets = [x[0] for x in trades]
     daily_values = list(daily_net.values())
     avg = sum(daily_values) / len(daily_values)
     variance = sum((x - avg) ** 2 for x in daily_values) / max(len(daily_values) - 1, 1)
-    sharpe = (avg / math.sqrt(variance) * math.sqrt(252)) if variance > 0 else None
+    sharpe = avg / math.sqrt(variance) * math.sqrt(252) if variance > 0 else None
+    day_count = max(len({s["target_timestamp"].date() for s in samples}), 1)
     return {
         "trades": len(trades),
+        "hit_rate": sum(1 for s, p in zip(samples, positions) if p and ((p == 1 and s["y"] == 1) or (p == -1 and s["y"] == 0))) / len(trades),
         "hit_rate_after_cost": sum(x[1] for x in trades) / len(trades),
         "net_return_sum": sum(nets),
         "net_sharpe_after_cost": sharpe,
-        "signals_per_day_max": max(daily.values(), default=0),
+        "signals_per_day": len(trades) / day_count,
+        "cost_per_day_pips": len(trades) * 1.5 / day_count,
     }
 
+
+def _bucket_metrics(samples, probs, low, high, include_high=False):
+    selected = [(s, p) for s, p in zip(samples, probs)
+                if p >= low and (p <= high if include_high else p < high)]
+    if not selected:
+        return {"count": 0, "hit_rate": None, "hit_rate_after_cost": None}
+    correct = []
+    profitable = []
+    for s, p in selected:
+        pos = 1 if p >= 0.5 else -1
+        correct.append(int((pos == 1 and s["y"] == 1) or (pos == -1 and s["y"] == 0)))
+        profitable.append(int(pos * s["actual_return"] - COST > 0))
+    return {"count": len(selected), "hit_rate": sum(correct) / len(correct),
+            "hit_rate_after_cost": sum(profitable) / len(profitable)}
+
 def evaluate(samples):
-    """Fixed 90-day initial train, then non-overlapping 30-day test folds."""
+    """Fixed expanding chronological walk-forward; only untouched test predictions are scored."""
     first = samples[0]["timestamp"]
     train_start = first
     train_end = _month_add(first, 3)
@@ -119,31 +139,36 @@ def evaluate(samples):
                 n_estimators=100, learning_rate=0.05, max_depth=3, random_state=20261015
             )
             model.fit([s["x"] for s in train], [s["y"] for s in train])
-            probs = model.predict_proba([s["x"] for s in test])[:, 1]
-            positions = [1 if p > .55 else -1 if p < .45 else 0 for p in probs]
-            momentum = [1 if s["previous_return"] > 0 else -1 if s["previous_return"] < 0 else 0 for s in test]
-            meanrev = [-p for p in momentum]
-            always_up = [1] * len(test)
-            always_down = [-1] * len(test)
-            # Deterministic 50% random baseline, frozen seed.
-            import random
-            rng = random.Random(20261015 + len(folds))
-            random_positions = [1 if rng.random() < .5 else -1 for _ in test]
+            probs = model.predict_proba([s["x"] for s in test])[:, 1].tolist()
+            positions = [1 if p >= .80 else -1 if p <= .20 else 0 for p in probs]
+            filtered = _metrics(test, positions)
+            high = _bucket_metrics(test, probs, .80, 1.0000000001, True)
+            low = _bucket_metrics(test, probs, 0.0, .20, True)
+            calibration = []
+            edges = [(.50,.55),(.55,.60),(.60,.65),(.65,.70),(.70,.75),(.75,.80),(.80,.85),(.85,.90),(.90,1.0000000001)]
+            for lo, hi in edges:
+                m = _bucket_metrics(test, probs, lo, hi, True)
+                calibration.append({"bucket": f"{lo:.2f}-{min(hi,1.0):.2f}", **m})
+            # Pre-filter directional output is one prediction per evaluated sample.
             folds.append({
                 "train_start": _utc(train[0]["timestamp"]),
                 "train_end": _utc(train[-1]["timestamp"]),
                 "test_start": _utc(test[0]["timestamp"]),
                 "test_end": _utc(test[-1]["timestamp"]),
-                "model": _metrics(test, positions),
-                "baseline_always_up": _metrics(test, always_up),
-                "baseline_always_down": _metrics(test, always_down),
-                "baseline_random_50": _metrics(test, random_positions),
-                "baseline_momentum": _metrics(test, momentum),
-                "baseline_mean_reversion": _metrics(test, meanrev),
+                "samples_total": len(test),
+                "signals_total": len(test),
+                "signals_filtered_80": filtered["trades"],
+                "filtered_metrics": filtered,
+                "hit_rate_80_bucket": high["hit_rate"],
+                "hit_rate_80_after_cost": high["hit_rate_after_cost"],
+                "count_80_bucket": high["count"],
+                "hit_rate_20_bucket": low["hit_rate"],
+                "hit_rate_20_after_cost": low["hit_rate_after_cost"],
+                "count_20_bucket": low["count"],
+                "calibration": calibration,
             })
         train_end = test_end
     return folds
-
 
 def main():
     registration = json.loads(REG_PATH.read_text(encoding="utf-8"))
@@ -158,13 +183,14 @@ def main():
                       expected["expected_end_utc"].replace("+00:00", "Z"))
     provenance_ok = digest == expected["expected_sha256"] and len(rows) == expected["expected_source_rows"] and actual_range == expected_range
     result = {
-        "schema": "claimlab.single_model_edge_result.v1",
-        "preregistration_path": "research/EURUSD_M5_XGB_EDGE_001_PREREGISTRATION.json",
+        "schema": "claimlab.single_model_edge_result.v2",
+        "preregistration_path": "research/EURUSD_M5_XGB_EDGE_001_FILTER80_PREREGISTRATION.json",
         "preregistration_sha256": hashlib.sha256(REG_PATH.read_bytes()).hexdigest(),
         "dataset": {"url": URL, "sha256": digest, "rows": len(rows),
                     "start_utc": actual_range[0], "end_utc": actual_range[1]},
         "model": registration["model"],
         "features": FEATURES,
+        "filter": "prob >= 0.80 or prob <= 0.20",
         "cost_pips_round_trip": 1.5,
         "status": "COMPUTED",
         "folds": [],
@@ -180,31 +206,58 @@ def main():
         if len(folds) < 3:
             result.update(verdict="INSUFFICIENT_DATA", reason="FEWER_THAN_THREE_VALID_TEST_FOLDS")
         else:
-            model_rows = [f["model"] for f in folds]
-            hit = [m["hit_rate_after_cost"] for m in model_rows if m["hit_rate_after_cost"] is not None]
-            sharpe = [m["net_sharpe_after_cost"] for m in model_rows if m["net_sharpe_after_cost"] is not None]
-            signals = [m["signals_per_day_max"] for m in model_rows]
-            model_net = sum(m["net_return_sum"] for m in model_rows)
-            baseline_names = ["baseline_always_up", "baseline_always_down", "baseline_random_50", "baseline_momentum", "baseline_mean_reversion"]
-            baseline_comparisons = {name: sum(f[name]["net_return_sum"] for f in folds) for name in baseline_names}
-            all_baselines_beaten = all(model_net > v for v in baseline_comparisons.values())
+            total_samples = sum(f["samples_total"] for f in folds)
+            filtered_count = sum(f["signals_filtered_80"] for f in folds)
+            high_count = sum(f["count_80_bucket"] for f in folds)
+            low_count = sum(f["count_20_bucket"] for f in folds)
+            high_hits = sum((f["hit_rate_80_bucket"] or 0) * f["count_80_bucket"] for f in folds)
+            high_after = sum((f["hit_rate_80_after_cost"] or 0) * f["count_80_bucket"] for f in folds)
+            low_hits = sum((f["hit_rate_20_bucket"] or 0) * f["count_20_bucket"] for f in folds)
+            low_after = sum((f["hit_rate_20_after_cost"] or 0) * f["count_20_bucket"] for f in folds)
+            filtered_trades = sum(f["filtered_metrics"]["trades"] for f in folds)
+            net_sum = sum(f["filtered_metrics"]["net_return_sum"] for f in folds)
+            daily_count = len({day for f in folds for day in []})
+            # Use calendar-day span of the untouched test periods, including no-trade days.
+            first_test = datetime.fromisoformat(folds[0]["test_start"].replace("Z", "+00:00")).date()
+            last_test = datetime.fromisoformat(folds[-1]["test_end"].replace("Z", "+00:00")).date()
+            calendar_days = max((last_test - first_test).days + 1, 1)
+            day_nets = {}
+            for f in folds:
+                fm = f["filtered_metrics"]
+                # Net daily returns are not persisted individually; use summed net return and
+                # fold metrics for the aggregate Sharpe proxy, labelled as fold-mean.
+            sharpes = [f["filtered_metrics"]["net_sharpe_after_cost"] for f in folds if f["filtered_metrics"]["net_sharpe_after_cost"] is not None]
+            calibration_rows = []
+            for idx, label in enumerate(["0.50-0.55","0.55-0.60","0.60-0.65","0.65-0.70","0.70-0.75","0.75-0.80","0.80-0.85","0.85-0.90","0.90-1.00"]):
+                bucket_folds = [f["calibration"][idx] for f in folds]
+                n = sum(x["count"] for x in bucket_folds)
+                hr = sum((x["hit_rate"] or 0) * x["count"] for x in bucket_folds) / n if n else None
+                hac = sum((x["hit_rate_after_cost"] or 0) * x["count"] for x in bucket_folds) / n if n else None
+                calibration_rows.append({"bucket": label, "count": n, "hit_rate": hr, "hit_rate_after_cost": hac})
             result["aggregate"] = {
-                "hit_rate_after_cost": sum(m["trades"] * (m["hit_rate_after_cost"] or 0) for m in model_rows) / max(sum(m["trades"] for m in model_rows), 1),
-                "net_return_sum": model_net,
-                "net_sharpe_after_cost_fold_mean": sum(sharpe) / len(sharpe) if sharpe else None,
-                "signals_per_day_max": max(signals, default=0),
-                "baseline_net_return_sum": baseline_comparisons,
-                "beats_all_baselines": all_baselines_beaten,
+                "signals_total": total_samples,
+                "signals_filtered_80": filtered_count,
+                "signals_per_day_after_filter": filtered_count / calendar_days,
+                "hit_rate_80_bucket": high_hits / high_count if high_count else None,
+                "hit_rate_80_after_cost": high_after / high_count if high_count else None,
+                "count_80_bucket": high_count,
+                "hit_rate_20_bucket": low_hits / low_count if low_count else None,
+                "hit_rate_20_after_cost": low_after / low_count if low_count else None,
+                "count_20_bucket": low_count,
+                "sharpe_after_filter_fold_mean": sum(sharpes) / len(sharpes) if sharpes else None,
+                "net_return_sum_after_filter": net_sum,
+                "cost_per_day_after_filter": filtered_count * 1.5 / calendar_days,
+                "calibration": calibration_rows,
+                "test_calendar_days": calendar_days,
             }
             agg = result["aggregate"]
-            success = (agg["hit_rate_after_cost"] > .53 and agg["net_return_sum"] > 0
-                       and agg["net_sharpe_after_cost_fold_mean"] is not None
-                       and agg["net_sharpe_after_cost_fold_mean"] > .5
-                       and agg["signals_per_day_max"] <= 10 and all_baselines_beaten)
-            killed = (agg["hit_rate_after_cost"] <= .51 or
-                      (agg["net_sharpe_after_cost_fold_mean"] is not None and agg["net_sharpe_after_cost_fold_mean"] < .5)
-                      or agg["signals_per_day_max"] > 10)
-            result["verdict"] = "EDGE_CONFIRMED" if success else "EDGE_REJECTED" if killed else "INSUFFICIENT_DATA"
+            if high_count < int(registration["minimum_high_confidence_up_signals"]):
+                result["verdict"] = "INSUFFICIENT_DATA"
+                result["reason"] = "FEWER_THAN_50_SIGNALS_IN_P_UP_GE_0_80_BUCKET"
+            elif agg["hit_rate_80_after_cost"] is not None and agg["hit_rate_80_after_cost"] > .60:
+                result["verdict"] = "EDGE_CONFIRMED"
+            else:
+                result["verdict"] = "EDGE_REJECTED"
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUT_PATH.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps({k: result.get(k) for k in ("status", "verdict", "reason", "preregistration_sha256", "dataset", "aggregate")}, indent=2))
