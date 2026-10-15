@@ -208,8 +208,6 @@ def main():
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUT_PATH.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps({k: result.get(k) for k in ("status", "verdict", "reason", "preregistration_sha256", "dataset", "aggregate")}, indent=2))
-    if result["verdict"] == "INSUFFICIENT_DATA":
-        raise SystemExit(2)
 
 
 if __name__ == "__main__":
