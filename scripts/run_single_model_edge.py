@@ -108,10 +108,10 @@ def evaluate(samples):
     """Fixed 90-day initial train, then non-overlapping 30-day test folds."""
     first = samples[0]["timestamp"]
     train_start = first
-    train_end = first + timedelta(days=90)
+    train_end = _month_add(first, 3)
     folds = []
-    while train_end < samples[-1]["target_timestamp"]:
-        test_end = train_end + timedelta(days=30)
+    while _month_add(train_end, 1) <= samples[-1]["target_timestamp"]:
+        test_end = _month_add(train_end, 1)
         train = [s for s in samples if train_start <= s["timestamp"] < train_end - timedelta(minutes=30)]
         test = [s for s in samples if train_end + timedelta(minutes=30) <= s["timestamp"] < test_end]
         if train and test:
