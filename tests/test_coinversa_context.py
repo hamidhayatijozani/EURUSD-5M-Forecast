@@ -74,3 +74,24 @@ def test_non_object_response_is_rejected(monkeypatch):
     monkeypatch.setenv("COINVERSAA_API_KEY", "test-key")
     monkeypatch.setattr(cc, "urlopen", lambda *a, **k: _Response(b'["not", "an object"]'))
     assert cc.fetch_coinversa_context()["status"] == "UNAVAILABLE:INVALID_SCHEMA"
+
+
+def test_context_collector_keeps_coinversa_separate_from_directional_score(monkeypatch):
+    from engine import context as external
+
+    monkeypatch.setattr(external, "fetch_news_context", lambda now: {
+        "score": 0.2, "volume": 0.1, "count": 1, "status": "OK"
+    })
+    monkeypatch.setattr(external, "trader_leaderboard", lambda rows, now=None: {
+        "score": -0.1, "count": 2, "leaders": [], "status": "OK"
+    })
+    monkeypatch.setattr(external, "fetch_power_proxy", lambda now=None: {
+        "score": 0.3, "status": "OK", "targets": []
+    })
+    monkeypatch.setattr(external, "fetch_coinversa_context", lambda: {
+        "source": "coinversa", "status": "UNAVAILABLE:TimeoutError", "data": None
+    })
+
+    result = external.collect_external_context([])
+    assert result["coinversa_context"]["status"] == "UNAVAILABLE:TimeoutError"
+    assert result["context_score"] == 0.55 * 0.2 + 0.45 * -0.1
