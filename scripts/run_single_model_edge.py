@@ -110,6 +110,14 @@ def _metrics(samples, positions):
     }
 
 
+def signal_from_probability(prob):
+    if prob >= 0.80:
+        return 1
+    if prob <= 0.20:
+        return -1
+    return 0
+
+
 def _bucket_metrics(samples, probs, low, high, include_high=False):
     selected = [(s, p) for s, p in zip(samples, probs)
                 if p >= low and (p <= high if include_high else p < high)]
@@ -140,14 +148,14 @@ def evaluate(samples):
             )
             model.fit([s["x"] for s in train], [s["y"] for s in train])
             probs = model.predict_proba([s["x"] for s in test])[:, 1].tolist()
-            positions = [1 if p >= .80 else -1 if p <= .20 else 0 for p in probs]
+            positions = [signal_from_probability(p) for p in probs]
             filtered = _metrics(test, positions)
-            high = _bucket_metrics(test, probs, .80, 1.0000000001, True)
+            high = _bucket_metrics(test, probs, .80, 1.0000000001)
             low = _bucket_metrics(test, probs, 0.0, .20, True)
             calibration = []
             edges = [(.50,.55),(.55,.60),(.60,.65),(.65,.70),(.70,.75),(.75,.80),(.80,.85),(.85,.90),(.90,1.0000000001)]
             for lo, hi in edges:
-                m = _bucket_metrics(test, probs, lo, hi, True)
+                m = _bucket_metrics(test, probs, lo, hi, hi > 1.0)
                 calibration.append({"bucket": f"{lo:.2f}-{min(hi,1.0):.2f}", **m})
             # Pre-filter directional output is one prediction per evaluated sample.
             folds.append({
@@ -216,16 +224,10 @@ def main():
             low_after = sum((f["hit_rate_20_after_cost"] or 0) * f["count_20_bucket"] for f in folds)
             filtered_trades = sum(f["filtered_metrics"]["trades"] for f in folds)
             net_sum = sum(f["filtered_metrics"]["net_return_sum"] for f in folds)
-            daily_count = len({day for f in folds for day in []})
             # Use calendar-day span of the untouched test periods, including no-trade days.
             first_test = datetime.fromisoformat(folds[0]["test_start"].replace("Z", "+00:00")).date()
             last_test = datetime.fromisoformat(folds[-1]["test_end"].replace("Z", "+00:00")).date()
             calendar_days = max((last_test - first_test).days + 1, 1)
-            day_nets = {}
-            for f in folds:
-                fm = f["filtered_metrics"]
-                # Net daily returns are not persisted individually; use summed net return and
-                # fold metrics for the aggregate Sharpe proxy, labelled as fold-mean.
             sharpes = [f["filtered_metrics"]["net_sharpe_after_cost"] for f in folds if f["filtered_metrics"]["net_sharpe_after_cost"] is not None]
             calibration_rows = []
             for idx, label in enumerate(["0.50-0.55","0.55-0.60","0.60-0.65","0.65-0.70","0.70-0.75","0.75-0.80","0.80-0.85","0.85-0.90","0.90-1.00"]):
