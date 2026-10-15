@@ -51,7 +51,7 @@ Those files are not copied over themselves. The newly imported ranking helper is
 - Repository search: completed against the repositories visible to the linked GitHub account and indexed by GitHub code search; this is not a claim that every private, unindexed, or inaccessible repository was exhaustively searched.
 - Files created on this branch: `engine/trader_intelligence.py`, `tests/test_trader_intelligence.py`, and this migration ledger.
 - Tests in the new test file: six focused cases covering the time window, symbol/direction/P&L filtering, missing-quality penalties, deterministic ranking cap, bounded consensus, and timestamp/limit validation.
-- Test execution and CI for this branch: **UNVERIFIED until GitHub Actions reports a result for the exact branch head**.
+- CI evidence for implementation/test SHA `6b476863be772e68961b0f1b1967326d0a30a033`: [run 38685544304](https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/38685544304) completed successfully; full `PYTHONPATH=. pytest -q` reported **131 passed in 1.85s**. This is software verification only. A later documentation commit requires its own exact-head CI confirmation.
 - Live trader records/API, trader-source authorization, live integration, incremental predictive value, and profitability: **UNVERIFIED / NOT CLAIMED**.
 
 No source credentials, raw accounts, trader records, or broker execution code were copied.
