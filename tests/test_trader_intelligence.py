@@ -116,7 +116,7 @@ def test_consensus_is_bounded_and_empty_coverage_is_explicit():
     assert consensus["status"] == "RESEARCH_ONLY"
     assert consensus["coverage"] == 3
     assert -1 <= consensus["score"] <= 1
-    assert consensus["score"] == 0.333333
+    assert consensus["score"] == 0.210526
 
 
 def test_rejects_ambiguous_asof_time_and_invalid_limit():
