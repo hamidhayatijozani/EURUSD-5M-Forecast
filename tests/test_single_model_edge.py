@@ -36,8 +36,6 @@ def test_gap_bar_is_not_used_as_a_next_five_minute_target():
     rows = _rows()
     rows[62]["timestamp"] += timedelta(minutes=5)
     samples = make_samples(rows)
-    assert all(
-        s["timestamp"] + timedelta(minutes=5) == rows[i + 1]["timestamp"]
-        for i, s in enumerate(samples)
-        if i + 1 < len(samples) and s["timestamp"] == rows[i]["timestamp"]
-    )
+    issued_bar_times = {s["timestamp"] for s in samples}
+    assert rows[61]["timestamp"] not in issued_bar_times
+    assert rows[62]["timestamp"] not in issued_bar_times
