@@ -1,0 +1,51 @@
+from datetime import datetime, timedelta, timezone
+
+from scripts.run_single_model_edge import FEATURES, make_samples, signal_from_probability
+
+
+def _rows(n=100):
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    rows = []
+    close = 1.1
+    for i in range(n):
+        ts = start + timedelta(minutes=5 * i)
+        nxt = close * (1 + (0.0002 if i % 3 else -0.0001))
+        rows.append({
+            "timestamp": ts, "open": close, "high": max(close, nxt) + 0.00005,
+            "low": min(close, nxt) - 0.00005, "close": nxt, "volume": float(i + 1),
+        })
+        close = nxt
+    return rows
+
+
+def test_fixed_feature_count_and_no_target_bar_leakage():
+    rows = _rows()
+    samples = make_samples(rows)
+    assert len(FEATURES) == 10
+    assert len(samples[0]["x"]) == 10
+    original = samples[0]
+    changed = [dict(r) for r in rows]
+    target_index = 61
+    changed[target_index]["close"] *= 1.02
+    changed_samples = make_samples(changed)
+    assert original["x"] == changed_samples[0]["x"]
+    assert original["actual_return"] != changed_samples[0]["actual_return"]
+
+
+def test_gap_bar_is_not_used_as_a_next_five_minute_target():
+    rows = _rows()
+    rows[62]["timestamp"] += timedelta(minutes=5)
+    samples = make_samples(rows)
+    issued_bar_times = {s["timestamp"] for s in samples}
+    assert rows[61]["timestamp"] not in issued_bar_times
+    assert rows[62]["timestamp"] not in issued_bar_times
+
+
+def test_filter_80_threshold_boundaries():
+    assert signal_from_probability(0.80) == 1
+    assert signal_from_probability(0.81) == 1
+    assert signal_from_probability(0.20) == -1
+    assert signal_from_probability(0.19) == -1
+    assert signal_from_probability(0.799999) == 0
+    assert signal_from_probability(0.50) == 0
+    assert signal_from_probability(0.200001) == 0
