@@ -28,6 +28,7 @@ jobs:
           mkdir -p research
           PYTHONPATH=. python -m engine.market_session --github-output "$GITHUB_OUTPUT" --json-path research/market_session.json
       - name: refresh public source availability
+        if: steps.fx_session.outputs.market_open == 'true'
         run: PYTHONPATH=. python -c "from engine.trader_sources import refresh_public_source_snapshot; refresh_public_source_snapshot()"
       - name: live minute forecast loop
         if: steps.fx_session.outputs.market_open == 'true'
