@@ -43,6 +43,9 @@ jobs:
       - name: evaluate forward GBPUSD-USDJPY paper family
         if: always()
         run: PYTHONPATH=. python scripts/evaluate_live_cross_asset_v2.py
+      - name: evaluate forward paper account (no broker orders)
+        if: always()
+        run: PYTHONPATH=. python scripts/paper_account.py
       - name: preserve live diagnostics even when forecasting fails
         if: always()
         uses: actions/upload-artifact@v4
@@ -52,6 +55,7 @@ jobs:
           retention-days: 14
           path: |
             research/live_minute_run.log
+            research/paper_account/
             research/live_state.json
             research/live_predictions.jsonl
             research/claimlab_live_observations.jsonl
