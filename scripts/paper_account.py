@@ -6,9 +6,8 @@ contract. It never fetches data, places orders, or tunes strategy parameters.
 from __future__ import annotations
 
 import json
-import math
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 PREDICTIONS = Path("research/live_predictions.jsonl")
@@ -147,7 +146,7 @@ def evaluate(rows: list[dict]) -> tuple[dict, list[dict]]:
     summary = {
         "schema": "hamidcognition.paper_account.v1",
         "mode": "PAPER_ONLY_NO_BROKER",
-        "created_at_utc": datetime.now().astimezone().isoformat(),
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "strategy_mutated": False,
         "initial_equity": INITIAL_EQUITY,
         "position_fraction": POSITION_FRACTION,
