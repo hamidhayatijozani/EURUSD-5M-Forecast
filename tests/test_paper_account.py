@@ -56,3 +56,17 @@ def test_drawdown_circuit_breaker_halts_new_trades():
     summary, trades = evaluate(rows)
     assert summary["scenarios"]["2e-05"]["halted_at_drawdown_limit"] is True
     assert len(trades) < len(rows)
+
+def test_overlapping_positions_freeze_notional_at_issue_time():
+    first = row("first", actual=-0.10)
+    second = row(
+        "second", actual=0.01,
+        issued="2026-10-17T10:02:00+00:00",
+        target="2026-10-17T10:07:00+00:00",
+        resolved="2026-10-17T10:07:00+00:00",
+        cutoff="2026-10-17T10:01:00+00:00",
+    )
+    _, trades = evaluate([first, second])
+    by_id = {trade["prediction_id"]: trade for trade in trades}
+    assert by_id["first"]["notional_at_entry"] == 2000.0
+    assert by_id["second"]["notional_at_entry"] == 2000.0
