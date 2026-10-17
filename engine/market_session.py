@@ -64,12 +64,12 @@ def main() -> int:
     print(json.dumps(snapshot, sort_keys=True))
     if args.github_output:
         with open(args.github_output, "a", encoding="utf-8") as handle:
-            handle.write(f"market_open={'true' if snapshot['market_open_by_schedule'] else 'false'}\\n")
-            handle.write(f"market_reason={snapshot['reason']}\\n")
+            handle.write(f"market_open={'true' if snapshot['market_open_by_schedule'] else 'false'}\n")
+            handle.write(f"market_reason={snapshot['reason']}\n")
     if args.json_path:
         path = Path(args.json_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+        path.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return 0
 
 
