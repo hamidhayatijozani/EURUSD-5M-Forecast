@@ -22,9 +22,15 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -r requirements.txt
       - run: PYTHONPATH=. pytest -q
+      - name: classify FX weekly session
+        id: fx_session
+        run: |
+          mkdir -p research
+          PYTHONPATH=. python -m engine.market_session --github-output "$GITHUB_OUTPUT" --json-path research/market_session.json
       - name: refresh public source availability
         run: PYTHONPATH=. python -c "from engine.trader_sources import refresh_public_source_snapshot; refresh_public_source_snapshot()"
       - name: live minute forecast loop
+        if: steps.fx_session.outputs.market_open == 'true'
         env:
           ELECTRICITY_MAPS_API_KEY: ${{ secrets.ELECTRICITY_MAPS_API_KEY }}
           OANDA_API_TOKEN: ${{ secrets.OANDA_API_TOKEN }}
@@ -46,7 +52,7 @@ jobs:
       - name: evaluate forward paper account (no broker orders)
         if: always()
         run: PYTHONPATH=. python scripts/paper_account.py
-      - name: preserve live diagnostics even when forecasting fails
+      - name: preserve live diagnostics even when forecasting is skipped or fails
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -54,6 +60,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
           path: |
+            research/market_session.json
             research/live_minute_run.log
             research/paper_account/
             research/live_state.json
