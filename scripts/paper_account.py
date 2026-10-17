@@ -72,48 +72,77 @@ def _eligible(row: dict) -> tuple[bool, str]:
 
 
 def _simulate(rows: list[dict], friction: float) -> dict:
+    # Event simulation freezes notional at issue time. Settlements are processed
+    # before new entries at the same timestamp; future outcomes never size trades.
     equity = INITIAL_EQUITY
     peak = equity
     max_drawdown = 0.0
+    open_positions: dict[str, dict] = {}
     trades = []
     halted = False
-    for row in sorted(rows, key=lambda x: (x.get("resolved_at", ""), x.get("prediction_id", ""))):
-        ok, reason = _eligible(row)
+    blocked_exposure = 0
+    events = []
+    for row in rows:
+        ok, _ = _eligible(row)
         if not ok:
             continue
         predicted = float(row["predicted_return"])
-        actual = float(row["actual_return"])
         if abs(predicted) <= SIGNAL_THRESHOLD:
             continue
-        if halted:
+        events.append((_dt(row["resolved_at"]), 0, row))
+        events.append((_dt(row["prediction_ts"]), 1, row))
+    events.sort(key=lambda event: (event[0], event[1], event[2].get("prediction_id", "")))
+
+    for event_time, event_kind, row in events:
+        pid = row["prediction_id"]
+        if event_kind == 1:  # issue: freeze size using equity known now
+            if halted:
+                continue
+            if len(open_positions) >= 5:
+                blocked_exposure += 1
+                continue
+            predicted = float(row["predicted_return"])
+            open_positions[pid] = {
+                "row": row,
+                "side": 1 if predicted > 0 else -1,
+                "notional_at_entry": equity * POSITION_FRACTION,
+                "equity_at_entry": equity,
+            }
             continue
-        side = 1 if predicted > 0 else -1
-        gross_return = side * actual
+
+        position = open_positions.pop(pid, None)
+        if position is None:
+            continue
+        actual = float(row["actual_return"])
+        gross_return = position["side"] * actual
         net_return = gross_return - friction
-        start_equity = equity
-        pnl = start_equity * POSITION_FRACTION * net_return
+        pnl = position["notional_at_entry"] * net_return
+        equity_before_settlement = equity
         equity += pnl
         peak = max(peak, equity)
         drawdown = (peak - equity) / peak if peak else 1.0
         max_drawdown = max(max_drawdown, drawdown)
         trades.append({
-            "prediction_id": row["prediction_id"],
+            "prediction_id": pid,
             "issued_at": row["prediction_ts"],
             "target_at": row["target_at"],
             "resolved_at": row["resolved_at"],
-            "side": "LONG" if side > 0 else "SHORT",
-            "predicted_return": predicted,
+            "side": "LONG" if position["side"] > 0 else "SHORT",
+            "predicted_return": float(row["predicted_return"]),
             "actual_return": actual,
             "gross_return": gross_return,
             "friction_assumption": friction,
             "net_return": net_return,
-            "equity_before": round(start_equity, 8),
+            "equity_at_entry": round(position["equity_at_entry"], 8),
+            "notional_at_entry": round(position["notional_at_entry"], 8),
+            "equity_before_settlement": round(equity_before_settlement, 8),
             "pnl": round(pnl, 8),
             "equity_after": round(equity, 8),
             "drawdown": round(drawdown, 8),
         })
         if drawdown >= MAX_DRAWDOWN:
             halted = True
+
     pnls = [float(t["pnl"]) for t in trades]
     wins = sum(x > 0 for x in pnls)
     return {
@@ -129,6 +158,8 @@ def _simulate(rows: list[dict], friction: float) -> dict:
         "max_drawdown_fraction": round(max_drawdown, 8),
         "drawdown_limit_fraction": MAX_DRAWDOWN,
         "halted_at_drawdown_limit": halted,
+        "blocked_by_open_exposure_cap": blocked_exposure,
+        "open_positions_unsettled_at_end": len(open_positions),
         "trades": trades,
     }
 
