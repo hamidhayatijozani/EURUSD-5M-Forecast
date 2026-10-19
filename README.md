@@ -58,3 +58,23 @@ For live deployment, connect an authorized EUR/USD 5-minute market-data source a
 
 ## Verification
 CI validates the forecast engine, temporal lock, consensus, and live-feed timestamp filtering.
+
+
+## Optional Coinversa market context
+
+Coinversa is an optional **on-chain crypto / Hyperliquid context source**, not an
+EUR/USD spot feed and not a source of EUR/USD candles. The adapter in
+`engine/coinversa_context.py` calls only the read-only pulse stats endpoint and
+keeps the response opaque; it does not infer EUR/USD direction or inject
+Coinversa data into OHLCV.
+
+It is disabled by default. To enable the optional fetch in a deployment, set
+`COINVERSA_CONTEXT_ENABLED=true` and add `COINVERSAA_API_KEY` as a secret in
+the deployment environment (never commit the key). The caller receives
+`DISABLED`, `UNAVAILABLE:...`, or `OK` metadata. Provider errors are
+contained and must not stop the EUR/USD feed or forecast pipeline. The adapter
+is attached to the external-context payload as a separate `coinversa_context`
+field; it is deliberately excluded from directional score fusion and EUR/USD
+candle ingestion. The response schema still needs review and evidence-backed
+evaluation before any field can be used as a model feature. No live API call
+or test execution is claimed by this change.
