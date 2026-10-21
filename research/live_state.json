@@ -53,7 +53,7 @@
     }
   },
   "bias": 0.004112155273920845,
-  "context_cycles": 217,
+  "context_cycles": 218,
   "correct": 62,
   "errors": [
     8.329341041936507e-05,
@@ -249,7 +249,7 @@
     -5.796059587901728e-05,
     6.689081421968905e-05
   ],
-  "last_cycle_at": "2026-10-21T12:22:12.725914+00:00",
+  "last_cycle_at": "2026-10-21T12:22:58.042160+00:00",
   "last_external_context": {
     "context_coverage": 0.0,
     "context_degraded": true,
@@ -269,7 +269,7 @@
     "trader_score": 0.0,
     "trader_status": "NO_SIGNAL_FILE"
   },
-  "last_prediction": "2026-10-21T12:20:00+00:00",
+  "last_prediction": "2026-10-21T12:21:00+00:00",
   "legacy_pre_contract_metrics": {
     "accuracy": 0.3142857142857143,
     "correct": 11,
