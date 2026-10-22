@@ -39,9 +39,9 @@ def test_condor_only_in_high_tremor():
     condor = suggest_asymmetric_iron_condor(1.1550, high_ts)
     assert condor is not None
     assert "legs" in condor
-    assert condor["legs"]["short_put"] < condor["legs"]["long_put"] is False  # short < long put? wait
-    # short_put should be lower than long_put
+    # short_put price > long_put price (protective put is further OTM)
     assert condor["legs"]["short_put"] > condor["legs"]["long_put"]
+    assert condor["legs"]["short_call"] < condor["legs"]["long_call"]
 
 
 def test_forecast_with_lrzesh_enabled():
@@ -63,5 +63,4 @@ def test_no_future_data_used():
     closes = _make_closes(n=15)
     f1 = forecast(closes[:-1], use_lrzesh=True)
     f2 = forecast(closes, use_lrzesh=True)
-    # Different inputs can produce different outputs; just ensure no crash
     assert f1 is not None and f2 is not None
