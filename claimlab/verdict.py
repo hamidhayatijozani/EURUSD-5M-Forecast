@@ -14,6 +14,16 @@ def verdict(stats, registry=None, min_n=None):
     if n < minimum:
         return "INSUFFICIENT_DATA"
 
+    # The locked ClaimLab performance protocol requires both raw n and
+    # dependence-adjusted effective n. Missing effective_n is not a pass.
+    if any(claim.get("family") == "performance" for claim in r["claims"]):
+        try:
+            effective_n = int(stats.get("effective_n", 0))
+        except (TypeError, ValueError):
+            return "INSUFFICIENT_DATA"
+        if effective_n < 100:
+            return "INSUFFICIENT_DATA"
+
     for claim in r["claims"]:
         metric = claim["metric"]
         key = claim.get("decision_metric", "value")
