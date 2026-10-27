@@ -12,6 +12,14 @@ from claimlab.schema import Observation
 from claimlab.walkforward import DATASET_URL, build_capsule, parse_csv, walk_forward
 
 
+def persist_dataset_snapshot(out_dir: Path, dataset_text: str) -> Path:
+    """Persist the exact downloaded bytes so the evidence capsule can be replayed."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    snapshot_path = out_dir / "dataset.csv"
+    snapshot_path.write_bytes(dataset_text.encode("utf-8"))
+    return snapshot_path
+
+
 def main() -> None:
     response = requests.get(DATASET_URL, timeout=60)
     response.raise_for_status()
@@ -24,7 +32,7 @@ def main() -> None:
     observations, config = walk_forward(rows, code_commit=code_commit)
 
     out_dir = Path("evidence/claimlab-walkforward")
-    out_dir.mkdir(parents=True, exist_ok=True)
+    snapshot_path = persist_dataset_snapshot(out_dir, text)
 
     ledger_path = out_dir / "observations.jsonl"
     ledger = Ledger(ledger_path)
@@ -37,6 +45,7 @@ def main() -> None:
         code_commit=code_commit,
         config=config,
     )
+    capsule["data"]["snapshot_artifact"] = snapshot_path.name
     capsule["statistics"]["ledger_integrity"] = 1.0 if ledger.verify() else 0.0
     capsule["verdict"] = __import__("claimlab.verdict", fromlist=["verdict"]).verdict(
         capsule["statistics"]
