@@ -53,7 +53,7 @@
     }
   },
   "bias": -0.054090408556471486,
-  "context_cycles": 309,
+  "context_cycles": 310,
   "correct": 86,
   "errors": [
     8.329341041936507e-05,
@@ -325,14 +325,14 @@
     -8.533040110976985e-05,
     -7.690283501625515e-05
   ],
-  "last_cycle_at": "2026-10-27T05:43:04.156336+00:00",
+  "last_cycle_at": "2026-10-27T05:44:28.546546+00:00",
   "last_external_context": {
     "context_coverage": 0.0,
     "context_degraded": true,
     "context_score": 0.0,
     "directional_sources_available": 0,
     "news_score": 0.0,
-    "news_status": "UNAVAILABLE:URLError",
+    "news_status": "UNAVAILABLE:HTTPError",
     "news_volume": 0.0,
     "power_score": 0.0,
     "power_status": "UNAVAILABLE:NO_API_KEY",
@@ -345,7 +345,7 @@
     "trader_score": 0.0,
     "trader_status": "NO_SIGNAL_FILE"
   },
-  "last_prediction": "2026-10-27T05:41:00+00:00",
+  "last_prediction": "2026-10-27T05:42:00+00:00",
   "legacy_pre_contract_metrics": {
     "accuracy": 0.3142857142857143,
     "correct": 11,
