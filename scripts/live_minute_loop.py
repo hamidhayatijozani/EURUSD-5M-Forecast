@@ -17,6 +17,7 @@ from claimlab.schema import Observation
 from engine.forecast_evidence import build_decision_evidence, verify_decision_evidence
 from claimlab.live_evidence_bridge import (persist_issue, persist_settlement, audit_stores, EVIDENCE_JSONL, SETTLEMENTS_JSONL, SQLITE_PATH)
 from claimlab.evidence_store import JsonLedger, LedgerDB, canonical_json
+from claimlab.live_provenance import require_freshness_provenance
 
 STATE_PATH=Path("research/live_state.json")
 PRED_PATH=Path("research/live_predictions.jsonl")
@@ -332,6 +333,7 @@ def settle(rows,times,prices,state,code_commit):
         resolved_at=iso(target_dt+timedelta(minutes=1))
         if row.get("target_at") != resolved_at:
             raise RuntimeError("LIVE_TARGET_CLOSE_TIMESTAMP_MISMATCH")
+        provenance=require_freshness_provenance(row)
         obs=resolve({
           "schema_version":"claimlab.observation.v1","prediction_id":row["prediction_id"],
           "issued_at":row["prediction_ts"],"target_at":row["target_at"],
@@ -339,12 +341,7 @@ def settle(rows,times,prices,state,code_commit):
           "symbol":"EURUSD","horizon_seconds":HORIZON*60,"prediction":predicted,"code_commit":code_commit,
           "config_hash": row["config_hash"],
           "claim_registry_hash": registry_hash(),
-          "provider": row.get("provider", "Yahoo"),
-          "source_candle_ts": row.get("source_candle_ts", row["prediction_ts"]),
-          "observed_at": row.get("observed_at", row["prediction_ts"]),
-          "data_age_seconds": float(row.get("data_age_seconds", 0.0)),
-          "freshness_limit_seconds": float(row.get("freshness_limit_seconds", 90.0)),
-          "freshness_status": row.get("freshness_status", "FRESH")},
+          **provenance},
           actual=actual,baseline_prediction=baseline,
           resolved_at=resolved_at,friction=(FRICTION,0.0,0.0))
         ledger=Ledger(CLAIM_LEDGER_PATH)
