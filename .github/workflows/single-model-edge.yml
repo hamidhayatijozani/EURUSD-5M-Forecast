@@ -1,0 +1,47 @@
+name: Preregistered Single-Model EURUSD Edge Test
+
+on:
+  push:
+    branches: [main, research/xgb-edge-preregistered-001]
+    paths:
+      - "research/EURUSD_M5_XGB_EDGE_001_PREREGISTRATION.json"
+      - "scripts/run_single_model_edge.py"
+      - "tests/test_single_model_edge.py"
+      - "requirements.txt"
+      - ".github/workflows/single-model-edge.yml"
+  pull_request:
+    paths:
+      - "research/EURUSD_M5_XGB_EDGE_001_PREREGISTRATION.json"
+      - "scripts/run_single_model_edge.py"
+      - "tests/test_single_model_edge.py"
+      - "requirements.txt"
+      - ".github/workflows/single-model-edge.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preregistered-edge-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install frozen research dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify feature count and target isolation
+        run: PYTHONPATH=. pytest -q tests/test_single_model_edge.py
+      - name: Run the single preregistered model
+        run: PYTHONPATH=. python scripts/run_single_model_edge.py
+      - name: Preserve result even when the model is rejected or data is insufficient
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eurusd-m5-xgb-edge-001-${{ github.run_id }}
+          path: evidence/xgb-edge-001/result.json
+          if-no-files-found: warn
+          retention-days: 90
