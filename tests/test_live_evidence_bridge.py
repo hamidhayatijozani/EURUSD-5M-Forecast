@@ -69,3 +69,25 @@ def test_live_bridge_rejects_settlement_before_target(tmp_path, monkeypatch):
     bridge.persist_issue(row, "test-commit")
     with pytest.raises(Exception, match="TARGET_NOT_REACHED"):
         bridge.persist_settlement(row, 0.0002, (datetime.fromisoformat(row["target_at"]) - timedelta(seconds=1)).isoformat())
+
+
+def test_live_bridge_recovers_missing_sqlite_issuance_from_verified_jsonl(tmp_path, monkeypatch):
+    monkeypatch.setattr(bridge, "EVIDENCE_JSONL", tmp_path / "evidence.jsonl")
+    monkeypatch.setattr(bridge, "SETTLEMENTS_JSONL", tmp_path / "settlements.jsonl")
+    monkeypatch.setattr(bridge, "SQLITE_PATH", tmp_path / "evidence.db")
+    row = _row()
+    bridge.persist_issue(row, "test-commit")
+
+    # Simulate a concurrent workflow/run artifact mismatch: JSONL issuance
+    # exists, but the corresponding SQLite prediction and snapshot are absent.
+    from claimlab.evidence_store import LedgerDB
+    db = LedgerDB(tmp_path / "evidence.db")
+    db.connection.execute("DELETE FROM snapshots WHERE prediction_id=?", (row["prediction_id"],))
+    db.connection.execute("DELETE FROM predictions WHERE prediction_id=?", (row["prediction_id"],))
+    db.connection.commit()
+    db.close()
+
+    bridge.persist_settlement(row, 0.0002, row["target_at"])
+    assert bridge.audit_stores() == {
+        "status": "AUDITED", "predictions": 1, "snapshots": 1, "settlements": 1
+    }
