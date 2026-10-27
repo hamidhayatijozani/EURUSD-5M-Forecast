@@ -289,7 +289,9 @@ def predict(series,ohlc,state,context):
     if abs(context["power_score"])>=0.60: adjusted*=0.80
     adjusted=max(-1.0,min(1.0,adjusted))
     direction="UP" if adjusted>0.12 else "DOWN" if adjusted<-0.12 else "FLAT"
-    predicted_return=adjusted*0.0005
+    # FLAT is a no-trade decision. Keep the numeric prediction consistent so
+    # ClaimLab settlement cannot turn a FLAT label into a directional position.
+    predicted_return=adjusted*0.0005 if direction != "FLAT" else 0.0
     return base,direction,adjusted,predicted_return,candidates,base_forecast.score
 
 def _freshness_age_seconds(source_candle_open, observed_at):
