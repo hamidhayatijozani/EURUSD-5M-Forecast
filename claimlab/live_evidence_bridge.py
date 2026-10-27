@@ -115,7 +115,20 @@ def persist_settlement(row, actual_return, resolved_at, evidence_dir=None):
     db = LedgerDB(sqlite_path)
     try:
         if db.get_prediction(pid) is None:
-            raise RuntimeError("LIVE_EVIDENCE_SETTLEMENT_WITHOUT_ISSUANCE")
+            # Recover SQLite from the authoritative, hash-verified issuance ledger.
+            # Concurrent workflow runs can leave JSONL committed while SQLite is
+            # missing/stale; never synthesize an issuance from settlement data.
+            ledger = JsonLedger(evidence_jsonl)
+            if not ledger.verify():
+                raise RuntimeError("LIVE_EVIDENCE_JSONL_CHAIN_INVALID")
+            issued_record = next(
+                (item for item in ledger._rows() if item.get("prediction_id") == pid),
+                None,
+            )
+            if issued_record is None:
+                raise RuntimeError("LIVE_EVIDENCE_SETTLEMENT_WITHOUT_ISSUANCE")
+            db.insert_prediction(issued_record)
+            db.insert_snapshot(pid, issued_record["decision_snapshot"])
         existing = db.connection.execute(
             "SELECT payload_json FROM settlements WHERE prediction_id=?", (pid,)
         ).fetchone()
