@@ -127,8 +127,12 @@ def persist_settlement(row, actual_return, resolved_at, evidence_dir=None):
             )
             if issued_record is None:
                 raise RuntimeError("LIVE_EVIDENCE_SETTLEMENT_WITHOUT_ISSUANCE")
-            db.insert_prediction(issued_record)
-            db.insert_snapshot(pid, issued_record["decision_snapshot"])
+            normalized_record = {
+                key: value for key, value in issued_record.items()
+                if key not in ("previous_hash", "ledger_hash")
+            }
+            db.insert_prediction(normalized_record)
+            db.insert_snapshot(pid, normalized_record["decision_snapshot"])
         existing = db.connection.execute(
             "SELECT payload_json FROM settlements WHERE prediction_id=?", (pid,)
         ).fetchone()
