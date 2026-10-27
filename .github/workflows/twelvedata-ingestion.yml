@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       run_live_probe:
-        description: "Fetch one real EUR/USD 5-minute candle (requires TWELVE_DATA_API_KEY repository secret)"
+        description: "Fetch one real EUR/USD 5-minute candle (requires TWELVEDATA_API_KEY repository secret)"
         required: true
         type: boolean
         default: false
@@ -43,7 +43,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.run_live_probe
     runs-on: ubuntu-latest
     env:
-      TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+      TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -52,7 +52,7 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
       - name: Require configured key
-        run: test -n "$TWELVE_DATA_API_KEY"
+        run: test -n "$TWELVEDATA_API_KEY"
       - name: Fetch one real EUR/USD candle
         run: python scripts/twelvedata_live_probe.py
       - name: Upload market-ingestion evidence
