@@ -97,6 +97,15 @@ def persist_issue(row, code_commit, evidence_dir=None):
     return record["evidence_hash"]
 
 
+def has_verified_issuance(prediction_id, evidence_dir=None):
+    """Return whether a prediction has a matching issuance in the verified append-only ledger."""
+    evidence_jsonl, _, _ = _paths(evidence_dir)
+    ledger = JsonLedger(evidence_jsonl)
+    if not ledger.verify():
+        raise RuntimeError("LIVE_EVIDENCE_JSONL_CHAIN_INVALID")
+    return any(item.get("prediction_id") == prediction_id for item in ledger._rows())
+
+
 def persist_settlement(row, actual_return, resolved_at, evidence_dir=None):
     evidence_jsonl, settlements_jsonl, sqlite_path = _paths(evidence_dir)
     pid = row["prediction_id"]

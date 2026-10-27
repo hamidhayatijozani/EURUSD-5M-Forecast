@@ -91,3 +91,16 @@ def test_live_bridge_recovers_missing_sqlite_issuance_from_verified_jsonl(tmp_pa
     assert bridge.audit_stores() == {
         "status": "AUDITED", "predictions": 1, "snapshots": 1, "settlements": 1
     }
+
+
+
+def test_live_bridge_issuance_lookup_fails_closed_and_matches_prediction_id(tmp_path, monkeypatch):
+    monkeypatch.setattr(bridge, "EVIDENCE_JSONL", tmp_path / "evidence.jsonl")
+    monkeypatch.setattr(bridge, "SETTLEMENTS_JSONL", tmp_path / "settlements.jsonl")
+    monkeypatch.setattr(bridge, "SQLITE_PATH", tmp_path / "evidence.db")
+    row = _row()
+
+    assert bridge.has_verified_issuance(row["prediction_id"]) is False
+    bridge.persist_issue(row, "test-commit")
+    assert bridge.has_verified_issuance(row["prediction_id"]) is True
+    assert bridge.has_verified_issuance("different-prediction") is False

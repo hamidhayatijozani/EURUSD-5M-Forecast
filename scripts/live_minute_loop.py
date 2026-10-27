@@ -15,7 +15,7 @@ from claimlab.registry import registry_hash
 from claimlab.resolver import resolve
 from claimlab.schema import Observation
 from engine.forecast_evidence import build_decision_evidence, verify_decision_evidence
-from claimlab.live_evidence_bridge import (persist_issue, persist_settlement, audit_stores, EVIDENCE_JSONL, SETTLEMENTS_JSONL, SQLITE_PATH)
+from claimlab.live_evidence_bridge import (persist_issue, persist_settlement, audit_stores, has_verified_issuance, EVIDENCE_JSONL, SETTLEMENTS_JSONL, SQLITE_PATH)
 from claimlab.evidence_store import JsonLedger, LedgerDB, canonical_json
 from claimlab.live_provenance import require_freshness_provenance
 
@@ -325,7 +325,21 @@ def settle(rows,times,prices,state,code_commit):
         # Never backfill pre-contract predictions into the clean evidence ledger.
         if row.get("data_contract_version") != LIVE_DATA_CONTRACT_VERSION:
             continue
-        if row.get("resolved_at"): continue
+        if row.get("resolved_at") or str(row.get("status", "")).startswith("EXCLUDED_"):
+            continue
+        # A rollout can leave a pending prediction in the legacy prediction file
+        # without its immutable bridge issuance. Do not fabricate an issuance or
+        # let that orphan block every subsequent forecast cycle: quarantine it.
+        if row.get("decision_evidence") and not has_verified_issuance(
+            row.get("prediction_id"), evidence_dir=PRED_PATH.parent
+        ):
+            row.update(
+                status="EXCLUDED_MISSING_ISSUANCE",
+                excluded_reason="No matching issuance in verified live evidence ledger; settlement prohibited",
+            )
+            changed=True
+            print(f"LIVE_PENDING_QUARANTINED_MISSING_ISSUANCE:{row.get('prediction_id')}")
+            continue
         target=row["target_ts"]  # candle-open key for price lookup
         if target not in price_map: continue
         actual=price_map[target]/float(row["entry_price"])-1.0
