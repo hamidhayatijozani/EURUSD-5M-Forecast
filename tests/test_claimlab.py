@@ -109,6 +109,8 @@ def test_arena_and_preregistered_verdict():
     assert verdict(stats, min_n=100) == "SURVIVES"
     assert verdict({**stats, "mae_delta_ci_lower": 0.0}, min_n=100) == "KILLED"
     assert verdict({**stats, "n": 99}, min_n=100) == "INSUFFICIENT_DATA"
+    assert verdict({**stats, "effective_n": 99}, min_n=100) == "INSUFFICIENT_DATA"
+    assert verdict({**stats, "effective_n": None}, min_n=100) == "INSUFFICIENT_DATA"
 
 
 def test_arena_rejects_equal_cutoff_and_issue_timestamp():
