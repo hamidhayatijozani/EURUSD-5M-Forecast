@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timezone, timedelta
 
 from claimlab.walkforward import parse_csv, walk_forward, regime_robustness
+from scripts.claimlab_walkforward import persist_dataset_snapshot
 
 
 def test_parse_csv_normalizes_and_sorts():
@@ -78,3 +79,16 @@ def test_regime_robustness_uses_past_only_volatility_groups():
     assert set(result["metrics"]) == {"LOW", "MEDIUM", "HIGH"}
     grouped_n = sum(group["n"] for group in result["metrics"].values())
     assert grouped_n + result["warmup_observations_excluded"] == len(observations)
+
+
+
+def test_dataset_snapshot_preserves_exact_source_bytes_and_hash(tmp_path):
+    import hashlib
+
+    source_text = "datetime,open,high,low,close,volume\r\n2026-01-01 00:00:00,1,2,0.5,1.5,10\r\n"
+    snapshot = persist_dataset_snapshot(tmp_path, source_text)
+    assert snapshot.name == "dataset.csv"
+    assert snapshot.read_bytes() == source_text.encode("utf-8")
+    assert hashlib.sha256(snapshot.read_bytes()).hexdigest() == hashlib.sha256(
+        source_text.encode("utf-8")
+    ).hexdigest()
