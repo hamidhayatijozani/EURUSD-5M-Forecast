@@ -1,7 +1,7 @@
 """Twelve Data adapter for real EUR/USD five-minute research candles.
 
 This is a market-data ingestion adapter only. It does not forecast or trade.
-The provider key is read from TWELVE_DATA_API_KEY and is never logged.
+The provider key is read from TWELVEDATA_API_KEY (legacy TWELVE_DATA_API_KEY is also accepted) and is never logged.
 """
 from __future__ import annotations
 
@@ -31,9 +31,9 @@ class TwelveDataEURUSD5mClient:
         session: Any = None,
         max_age_seconds: int = 900,
     ) -> None:
-        self.api_key = api_key or os.getenv("TWELVE_DATA_API_KEY")
+        self.api_key = api_key or os.getenv("TWELVEDATA_API_KEY") or os.getenv("TWELVE_DATA_API_KEY")
         if not self.api_key:
-            raise TwelveDataError("TWELVE_DATA_API_KEY is required")
+            raise TwelveDataError("TWELVEDATA_API_KEY is required")
         if timeout <= 0:
             raise ValueError("timeout must be positive")
         if max_age_seconds < 0:

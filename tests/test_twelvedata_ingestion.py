@@ -28,7 +28,7 @@ def row(timestamp, open_="1.1000", high="1.1010", low="1.0990", close="1.1005"):
 
 
 def test_requires_api_key():
-    with pytest.raises(TwelveDataError, match="TWELVE_DATA_API_KEY"):
+    with pytest.raises(TwelveDataError, match="TWELVEDATA_API_KEY"):
         TwelveDataEURUSD5mClient(api_key="")
 
 
@@ -91,3 +91,30 @@ def test_no_completed_candle_is_explicit_failure():
     client = TwelveDataEURUSD5mClient("not-a-real-key", session=session)
     with pytest.raises(TwelveDataError, match="No completed"):
         client.fetch_latest_eurusd_candle(now=datetime(2026, 10, 13, 6, 22, tzinfo=timezone.utc))
+
+def test_reads_repository_secret_name_from_environment(monkeypatch):
+    monkeypatch.setenv("TWELVEDATA_API_KEY", "canonical-test-key")
+    monkeypatch.delenv("TWELVE_DATA_API_KEY", raising=False)
+    client = TwelveDataEURUSD5mClient(
+        session=FakeSession({"values": [row("2026-10-13 06:15:00")]})
+    )
+    result = client.fetch_latest_eurusd_candle(
+        now=datetime(2026, 10, 13, 6, 22, tzinfo=timezone.utc)
+    )
+    assert result["freshness_status"] == "FRESH"
+    _, kwargs = client.session.calls[0]
+    assert kwargs["params"]["apikey"] == "canonical-test-key"
+
+
+def test_legacy_api_key_environment_alias_remains_supported(monkeypatch):
+    monkeypatch.delenv("TWELVEDATA_API_KEY", raising=False)
+    monkeypatch.setenv("TWELVE_DATA_API_KEY", "legacy-test-key")
+    client = TwelveDataEURUSD5mClient(
+        session=FakeSession({"values": [row("2026-10-13 06:15:00")]})
+    )
+    client.fetch_latest_eurusd_candle(
+        now=datetime(2026, 10, 13, 6, 22, tzinfo=timezone.utc)
+    )
+    _, kwargs = client.session.calls[0]
+    assert kwargs["params"]["apikey"] == "legacy-test-key"
+
