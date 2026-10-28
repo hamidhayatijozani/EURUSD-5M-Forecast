@@ -54,7 +54,7 @@ def _candles(age_since_close, n=120):
     return rows
 
 
-def run_cycle(age_since_close, per_fetch_latency=0.0):
+def run_cycle(age_since_close, per_fetch_latency=0.0, fetch_calls=None):
     """Run the real cycle(); return (exception_or_None, persisted_prediction_rows).
 
     ``per_fetch_latency`` advances the fake clock on every HTTP fetch, so the
@@ -62,6 +62,8 @@ def run_cycle(age_since_close, per_fetch_latency=0.0):
     clock = _Clock(T0)
 
     def fake_fetch(symbol="EURUSD"):
+        if fetch_calls is not None:
+            fetch_calls.append(symbol)
         rows = _candles(age_since_close)
         clock.now += timedelta(seconds=per_fetch_latency)
         return rows
@@ -162,6 +164,44 @@ class FreshnessGateTests(unittest.TestCase):
         self.assertEqual(row["freshness_status"], "FRESH")
         self.assertLessEqual(row["data_age_seconds"], row["freshness_limit_seconds"])
         self.assertEqual(row["data_contract_version"], loop.LIVE_DATA_CONTRACT_VERSION)
+
+    def test_cycle_reuses_one_primary_eurusd_snapshot_for_close_and_ohlc(self):
+        calls = []
+        error, rows = run_cycle(60.0, fetch_calls=calls)
+        self.assertIsNone(error, repr(error))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(calls.count("EURUSD"), 1, calls)
+
+    def test_invalid_temporal_pending_row_is_quarantined_without_claimlab_entry(self):
+        target_open = datetime(2026, 10, 7, 0, 42, tzinfo=timezone.utc)
+        row = {
+            "prediction_id": "invalid-temporal-pending",
+            "prediction_ts": "2026-10-07T00:38:00+00:00",
+            "target_ts": target_open.isoformat(),
+            "target_at": (target_open + timedelta(minutes=1)).isoformat(),
+            "entry_price": 1.1,
+            "predicted_return": 0.0001,
+            "baseline_prediction": 0.0,
+            "config_hash": "test-config",
+            "status": "PENDING",
+            "data_contract_version": loop.LIVE_DATA_CONTRACT_VERSION,
+            "provider": "yahoo",
+            "source_candle_ts": "2026-10-07T00:37:00+00:00",
+            "observed_at": "2026-10-07T00:38:00+00:00",
+            "data_age_seconds": 0.0,
+            "freshness_limit_seconds": LIMIT_SECONDS,
+            "freshness_status": "FRESH",
+        }
+        state = {"bias": 0.0, "resolved": 0, "correct": 0, "errors": [], "algorithms": {}}
+        with tempfile.TemporaryDirectory() as tmp, \\
+                mock.patch.object(loop, "CLAIM_LEDGER_PATH", Path(tmp) / "ledger.jsonl"):
+            changed = loop.settle(
+                [row], [target_open], [1.1003], state, "test-sha"
+            )
+            self.assertTrue(changed)
+            self.assertEqual(row["status"], "EXCLUDED_INVALID_TEMPORAL_ORDERING")
+            self.assertNotIn("resolved_at", row)
+            self.assertFalse((Path(tmp) / "ledger.jsonl").exists())
 
     def test_contract_label_was_bumped_when_age_semantics_changed(self):
         self.assertNotEqual(loop.LIVE_DATA_CONTRACT_VERSION, "freshness-90s-v1")
