@@ -16,6 +16,8 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -r requirements.txt
       - run: PYTHONPATH=. pytest -q
+      - name: Audit historical source and freshness provenance (read-only)
+        run: PYTHONPATH=. python scripts/audit_historical_provenance.py
       - run: PYTHONPATH=. python scripts/run_market_research.py
       - name: Run real historical ClaimLab walk-forward
         env:
@@ -26,4 +28,5 @@ jobs:
           name: market-research-${{ github.run_number }}
           path: |
             research/results/latest.json
+            research/results/historical_provenance_audit.json
             evidence/claimlab-walkforward/
