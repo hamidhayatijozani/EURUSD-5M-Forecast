@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - "dashboard/**"
+      - "webapp/**"
       - ".github/workflows/deploy-pages.yml"
   workflow_dispatch:
 permissions:
@@ -24,10 +25,15 @@ jobs:
         uses: actions/checkout@v6
       - name: Configure Pages
         uses: actions/configure-pages@v5
-      - name: Upload dashboard
+      - name: Assemble Pages artifact
+        run: |
+          mkdir -p public/webapp
+          cp -a dashboard/. public/
+          cp -a webapp/. public/webapp/
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: ./dashboard
+          path: ./public
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
