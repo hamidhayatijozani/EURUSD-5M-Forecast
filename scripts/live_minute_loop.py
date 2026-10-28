@@ -8,7 +8,8 @@ from engine.algorithm_factory import adaptive_ensemble, update_algorithm_stats, 
 from engine.experiments import combined, pst_signal
 from engine.context import collect_external_context
 from engine.forecast import forecast
-from engine.live_feed import aligned_closed_1m_series, aligned_closed_1m_ohlc, closed_1m_rows
+import engine.live_feed as live_feed_adapter
+from engine.live_feed import aligned_closed_1m_series, aligned_closed_1m_ohlc
 from engine.market_providers import LAST_PROVIDER_BY_SYMBOL
 from claimlab.ledger import Ledger
 from claimlab.registry import registry_hash
@@ -350,16 +351,27 @@ def settle(rows,times,prices,state,code_commit):
         if row.get("target_at") != resolved_at:
             raise RuntimeError("LIVE_TARGET_CLOSE_TIMESTAMP_MISMATCH")
         provenance=require_freshness_provenance(row)
-        obs=resolve({
-          "schema_version":"claimlab.observation.v1","prediction_id":row["prediction_id"],
-          "issued_at":row["prediction_ts"],"target_at":row["target_at"],
-          "feature_cutoff_at":row.get("decision_evidence",{}).get("feature_cutoff_at",row["prediction_ts"]),
-          "symbol":"EURUSD","horizon_seconds":HORIZON*60,"prediction":predicted,"code_commit":code_commit,
-          "config_hash": row["config_hash"],
-          "claim_registry_hash": registry_hash(),
-          **provenance},
-          actual=actual,baseline_prediction=baseline,
-          resolved_at=resolved_at,friction=(FRICTION,0.0,0.0))
+        try:
+            obs=resolve({
+              "schema_version":"claimlab.observation.v1","prediction_id":row["prediction_id"],
+              "issued_at":row["prediction_ts"],"target_at":row["target_at"],
+              "feature_cutoff_at":row.get("decision_evidence",{}).get("feature_cutoff_at",row["prediction_ts"]),
+              "symbol":"EURUSD","horizon_seconds":HORIZON*60,"prediction":predicted,"code_commit":code_commit,
+              "config_hash": row["config_hash"],
+              "claim_registry_hash": registry_hash(),
+              **provenance},
+              actual=actual,baseline_prediction=baseline,
+              resolved_at=resolved_at,friction=(FRICTION,0.0,0.0))
+        except ValueError as exc:
+            if str(exc) != "INVALID temporal ordering":
+                raise
+            row.update(
+                status="EXCLUDED_INVALID_TEMPORAL_ORDERING",
+                excluded_reason="ClaimLab temporal contract failed; settlement not admitted",
+            )
+            changed=True
+            print(f"LIVE_PENDING_QUARANTINED_INVALID_TEMPORAL_ORDERING:{row.get('prediction_id')}")
+            continue
         ledger=Ledger(CLAIM_LEDGER_PATH)
         existing_ids={item.get("prediction_id") for item in ledger._rows()}
         if row["prediction_id"] not in existing_ids:
@@ -835,10 +847,20 @@ def cycle():
     # long contiguous feature window. A feature-data gap must not erase valid
     # target-price evidence for predictions already issued.
     try:
-        raw_rows=closed_1m_rows("EURUSD",now)
-    except (HTTPError,URLError,TimeoutError,OSError,RuntimeError) as exc:
-        raw_rows=[]
-        print(f"PENDING_SETTLEMENT_FEED_WARNING: {type(exc).__name__}: {exc}")
+        # Use one primary OHLC response for settlement, close features, and OHLC
+        # features. Separate requests can straddle a minute boundary and produce
+        # a false stale-feed failure or mismatched close/OHLC timestamps.
+        primary_ohlc_rows=live_feed_adapter.fetch_1m_ohlc("EURUSD")
+        raw_rows=[
+            (ts,close) for ts,open_,high,low,close in primary_ohlc_rows
+            if ts+timedelta(minutes=1)<=now
+        ]
+    except (HTTPError,URLError,TimeoutError,OSError,RuntimeError,ValueError) as exc:
+        print(
+            f"LIVE_CYCLE_HOLD: {type(exc).__name__}: {exc}; "
+            "pending_settlement_attempted=false; new_forecast_emitted=false"
+        )
+        return "HOLD"
     if raw_rows:
         pre_changed=settle(
             predictions,[row[0] for row in raw_rows],[row[1] for row in raw_rows],
@@ -849,10 +871,10 @@ def cycle():
             state=load_state(); predictions=read_predictions()
 
     try:
-        data,times=aligned_closed_1m_series(now)
-        ohlc_map,ohlc_times=aligned_closed_1m_ohlc(now)
-        # The two HTTP fetches can straddle a minute boundary. Join only
-        # timestamps present in both snapshots; never pair different bars.
+        data,times=aligned_closed_1m_series(now,primary_ohlc_rows=primary_ohlc_rows)
+        ohlc_map,ohlc_times=aligned_closed_1m_ohlc(now,primary_ohlc_rows=primary_ohlc_rows)
+        # Keep this intersection as a defensive invariant even though both
+        # feature views now originate from the same primary OHLC snapshot.
         common=sorted(set(times).intersection(ohlc_times))
         if len(common)<30:
             raise RuntimeError(
@@ -861,7 +883,7 @@ def cycle():
     except (RuntimeError,HTTPError,URLError,TimeoutError,OSError) as exc:
         print(
             f"LIVE_CYCLE_HOLD: {type(exc).__name__}: {exc}; "
-            "pending_settlement_attempted=true; new_forecast_emitted=false"
+            f"pending_settlement_attempted={bool(raw_rows)}; new_forecast_emitted=false"
         )
         return "HOLD"
 
