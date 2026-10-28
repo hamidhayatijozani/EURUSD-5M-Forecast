@@ -19,10 +19,22 @@ FRESHNESS_KEYS = ("freshness_status", "freshness", "data_freshness")
 
 
 def _present(row: dict, keys: tuple[str, ...]) -> tuple[bool, str | None]:
+    unknown_tokens = {"unknown", "null", "none", "n/a", "na", "not_available", "unavailable"}
     for key in keys:
         value = row.get(key)
-        if value is not None and value != "":
-            return True, key
+        if value is None or value == "":
+            continue
+        if isinstance(value, str) and value.strip().casefold() in unknown_tokens:
+            continue
+        if key in AGE_KEYS:
+            try:
+                import math
+                age = float(value)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(age) or age < 0:
+                continue
+        return True, key
     return False, None
 
 
