@@ -63,7 +63,7 @@ class HistoricalProvenanceAuditTests(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "ledger.jsonl"
-            path.write_text("".join(json.dumps(row) + "\\n" for row in cases), encoding="utf-8")
+            path.write_text("".join(json.dumps(row) + "\n" for row in cases), encoding="utf-8")
             report = audit_ledger(path)
             self.assertEqual(report["eligible_rows"], 0)
             self.assertEqual(report["excluded_rows"], 3)
