@@ -9,6 +9,10 @@ on:
       - "research/live_predictions.jsonl"
       - ".github/workflows/historical-provenance-integration.yml"
   workflow_dispatch:
+  # Audit the current canonical ledger periodically without spawning a run
+  # for every live-loop commit to main.
+  schedule:
+    - cron: "17 * * * *"
 permissions:
   contents: read
 jobs:
