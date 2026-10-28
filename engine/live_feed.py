@@ -150,18 +150,26 @@ def closed_1m_rows(symbol="EURUSD",now=None):
     return [(ts,c) for ts,o,h,l,c in fetch_1m_ohlc(symbol)
             if ts+timedelta(minutes=1)<=now]
 
-def aligned_closed_1m_series(now=None,limit=120):
+def aligned_closed_1m_series(now=None,limit=120,*,primary_ohlc_rows=None):
     now=now or datetime.now(timezone.utc)
     # Validate the primary stream first; no auxiliary source can compensate
     # for an unusable EURUSD feature window.
-    try:
-        raw_master=closed_1m_rows("EURUSD",now)
-    except Exception as exc:
-        if isinstance(exc, HTTPError):
-            detail=f"HTTPError:status={exc.code}:reason={exc.reason}"
-        else:
-            detail=f"{type(exc).__name__}:{exc}"
-        raise RuntimeError(f"EURUSD_ONE_MINUTE_FEED_UNAVAILABLE:{detail}") from exc
+    if primary_ohlc_rows is None:
+        try:
+            raw_master=closed_1m_rows("EURUSD",now)
+        except Exception as exc:
+            if isinstance(exc, HTTPError):
+                detail=f"HTTPError:status={exc.code}:reason={exc.reason}"
+            else:
+                detail=f"{type(exc).__name__}:{exc}"
+            raise RuntimeError(f"EURUSD_ONE_MINUTE_FEED_UNAVAILABLE:{detail}") from exc
+    else:
+        raw_master=[
+            (row[0], row[4]) for row in primary_ohlc_rows
+            if row[0]+timedelta(minutes=1)<=now
+        ]
+        if not raw_master:
+            raise RuntimeError("EURUSD_ONE_MINUTE_FEED_UNAVAILABLE")
     if not raw_master:
         raise RuntimeError("EURUSD_ONE_MINUTE_FEED_UNAVAILABLE")
     master_total=len(raw_master)
@@ -226,9 +234,10 @@ def aligned_closed_1m_series(now=None,limit=120):
     return data,times
 
 
-def aligned_closed_1m_ohlc(now=None,limit=120):
+def aligned_closed_1m_ohlc(now=None,limit=120,*,primary_ohlc_rows=None):
     now=now or datetime.now(timezone.utc)
-    rows=[row for row in fetch_1m_ohlc("EURUSD")
+    source_rows = fetch_1m_ohlc("EURUSD") if primary_ohlc_rows is None else primary_ohlc_rows
+    rows=[row for row in source_rows
           if row[0]+timedelta(minutes=1)<=now]
     if not rows:
         raise RuntimeError("EURUSD_ONE_MINUTE_OHLC_UNAVAILABLE")
