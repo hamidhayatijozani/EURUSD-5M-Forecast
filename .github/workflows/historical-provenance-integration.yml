@@ -1,0 +1,57 @@
+name: historical-provenance-integration
+on:
+  push:
+    branches:
+      - support/claimlab-provenance-integration-20261028
+  pull_request:
+    paths:
+      - "scripts/audit_historical_provenance.py"
+      - "research/live_predictions.jsonl"
+      - ".github/workflows/historical-provenance-integration.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit-canonical-ledger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Hash canonical ledger before audit
+        id: before
+        shell: bash
+        run: echo "sha=$(sha256sum research/live_predictions.jsonl | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Audit actual canonical ledger without modifying it
+        run: PYTHONPATH=. python scripts/audit_historical_provenance.py --input research/live_predictions.jsonl --output /tmp/historical_provenance_audit.json
+      - name: Validate report and source immutability
+        env:
+          EXPECTED_SHA: ${{ steps.before.outputs.sha }}
+        run: |
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          source = Path("research/live_predictions.jsonl")
+          report_path = Path("/tmp/historical_provenance_audit.json")
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+          actual_sha = hashlib.sha256(source.read_bytes()).hexdigest()
+          assert actual_sha == os.environ["EXPECTED_SHA"], "canonical ledger changed during audit"
+          assert report["source_file_sha256"] == actual_sha, "report source hash mismatch"
+          assert report["raw_rows"] > 0, "canonical ledger produced zero audit rows"
+          assert report["raw_rows"] == report["eligible_rows"] + report["excluded_rows"], "row counts do not reconcile"
+          assert len(report["rows"]) == report["raw_rows"], "row detail count mismatch"
+          print(json.dumps({
+              "status": "PASS",
+              "raw_rows": report["raw_rows"],
+              "eligible_rows": report["eligible_rows"],
+              "excluded_rows": report["excluded_rows"],
+              "source_sha256": actual_sha,
+              "source_unchanged": True
+          }, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: historical-provenance-integration-${{ github.run_number }}
+          path: /tmp/historical_provenance_audit.json
