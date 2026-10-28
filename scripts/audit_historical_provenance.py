@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SOURCE_KEYS = ("source", "provider", "provider_name", "data_source")
-TIMESTAMP_KEYS = ("source_candle_ts", "source_timestamp", "candle_timestamp", "timestamp")
+TIMESTAMP_KEYS = ("source_candle_ts", "source_timestamp", "candle_timestamp")
 OBSERVED_KEYS = ("observed_at", "observation_time", "received_at")
 AGE_KEYS = ("data_age_seconds", "candle_age_seconds", "age_seconds")
 FRESHNESS_KEYS = ("freshness_status", "freshness", "data_freshness")
