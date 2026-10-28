@@ -52,6 +52,26 @@ class HistoricalProvenanceAuditTests(unittest.TestCase):
             report = audit_ledger(path)
             self.assertEqual(report["source_file_sha256"], hashlib.sha256(raw).hexdigest())
 
+    def test_unknown_placeholders_and_invalid_ages_are_not_eligible(self):
+        cases = [
+            {"id": "unknown-source", "source": "UNKNOWN", "source_candle_ts": "2026-10-27T10:00:00Z",
+             "observed_at": "2026-10-27T10:00:01Z", "data_age_seconds": 1, "freshness_status": "FRESH"},
+            {"id": "unknown-age", "source": "feed", "source_candle_ts": "2026-10-27T10:00:00Z",
+             "observed_at": "2026-10-27T10:00:01Z", "data_age_seconds": "UNKNOWN", "freshness_status": "FRESH"},
+            {"id": "negative-age", "source": "feed", "source_candle_ts": "2026-10-27T10:00:00Z",
+             "observed_at": "2026-10-27T10:00:01Z", "data_age_seconds": -1, "freshness_status": "FRESH"},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ledger.jsonl"
+            path.write_text("".join(json.dumps(row) + "\\n" for row in cases), encoding="utf-8")
+            report = audit_ledger(path)
+            self.assertEqual(report["eligible_rows"], 0)
+            self.assertEqual(report["excluded_rows"], 3)
+            by_id = {row["row_id"]: row for row in report["rows"]}
+            self.assertIn("source", by_id["unknown-source"]["missing_fields"])
+            self.assertIn("data_age_seconds", by_id["unknown-age"]["missing_fields"])
+            self.assertIn("data_age_seconds", by_id["negative-age"]["missing_fields"])
+
 
 if __name__ == "__main__":
     unittest.main()
