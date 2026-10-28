@@ -193,15 +193,15 @@ class FreshnessGateTests(unittest.TestCase):
             "freshness_status": "FRESH",
         }
         state = {"bias": 0.0, "resolved": 0, "correct": 0, "errors": [], "algorithms": {}}
-        with tempfile.TemporaryDirectory() as tmp, \\
-                mock.patch.object(loop, "CLAIM_LEDGER_PATH", Path(tmp) / "ledger.jsonl"):
-            changed = loop.settle(
-                [row], [target_open], [1.1003], state, "test-sha"
-            )
-            self.assertTrue(changed)
-            self.assertEqual(row["status"], "EXCLUDED_INVALID_TEMPORAL_ORDERING")
-            self.assertNotIn("resolved_at", row)
-            self.assertFalse((Path(tmp) / "ledger.jsonl").exists())
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(loop, "CLAIM_LEDGER_PATH", Path(tmp) / "ledger.jsonl"):
+                changed = loop.settle(
+                    [row], [target_open], [1.1003], state, "test-sha"
+                )
+                self.assertTrue(changed)
+                self.assertEqual(row["status"], "EXCLUDED_INVALID_TEMPORAL_ORDERING")
+                self.assertNotIn("resolved_at", row)
+                self.assertFalse((Path(tmp) / "ledger.jsonl").exists())
 
     def test_contract_label_was_bumped_when_age_semantics_changed(self):
         self.assertNotEqual(loop.LIVE_DATA_CONTRACT_VERSION, "freshness-90s-v1")
