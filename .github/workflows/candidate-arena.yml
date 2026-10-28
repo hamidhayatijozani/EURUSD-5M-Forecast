@@ -2,6 +2,16 @@ name: ClaimLab preregistered candidate arena
 
 on:
   workflow_dispatch:
+  schedule:
+    # Re-run the frozen candidate screen against newly available provider history.
+    - cron: "31 3 * * *"
+  pull_request:
+    paths:
+      - "scripts/claimlab_candidate_arena.py"
+      - "research/CANDIDATE_ARENA_PREREGISTRATION.json"
+      - "research/RECENT_OOS_PREREGISTRATION.json"
+      - "tests/test_candidate_arena.py"
+      - ".github/workflows/candidate-arena.yml"
   push:
     paths:
       - "scripts/claimlab_candidate_arena.py"
@@ -12,6 +22,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: claimlab-candidate-arena-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   candidate-arena:
