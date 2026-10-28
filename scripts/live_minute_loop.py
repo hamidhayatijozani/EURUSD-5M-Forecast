@@ -873,8 +873,8 @@ def cycle():
     try:
         data,times=aligned_closed_1m_series(now,primary_ohlc_rows=primary_ohlc_rows)
         ohlc_map,ohlc_times=aligned_closed_1m_ohlc(now,primary_ohlc_rows=primary_ohlc_rows)
-        # The two HTTP fetches can straddle a minute boundary. Join only
-        # timestamps present in both snapshots; never pair different bars.
+        # Keep this intersection as a defensive invariant even though both
+        # feature views now originate from the same primary OHLC snapshot.
         common=sorted(set(times).intersection(ohlc_times))
         if len(common)<30:
             raise RuntimeError(
