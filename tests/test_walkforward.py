@@ -5,10 +5,10 @@ from claimlab.walkforward import parse_csv, walk_forward, regime_robustness, cos
 from scripts.claimlab_walkforward import persist_dataset_snapshot
 
 
-def test_parse_csv_preserves_source_order_and_normalizes_utc():
+def test_parse_csv_normalizes_and_sorts_source_timestamps():
     text = """datetime,open,high,low,close,volume
+2026-01-01 00:05:00,1.1,1.2,1.0,1.15,10
 2026-01-01 00:00:00,1.0,1.1,0.9,1.05,11
-2026-01-01 00:05:00Z,1.05,1.2,1.0,1.15,10
 """
     rows = parse_csv(text)
     assert rows[0]["timestamp"] < rows[1]["timestamp"]
@@ -16,22 +16,17 @@ def test_parse_csv_preserves_source_order_and_normalizes_utc():
     assert rows[0]["close"] == 1.05
 
 
-def test_parse_csv_rejects_out_of_order_or_duplicate_timestamps():
-    out_of_order = """datetime,open,high,low,close,volume
-2026-01-01 00:05:00,1.1,1.2,1.0,1.15,10
-2026-01-01 00:00:00,1.0,1.1,0.9,1.05,11
-"""
+def test_parse_csv_rejects_duplicate_timestamps():
     duplicate = """datetime,open,high,low,close,volume
 2026-01-01 00:00:00,1.0,1.1,0.9,1.05,11
 2026-01-01 00:00:00,1.05,1.2,1.0,1.15,10
 """
-    for text in (out_of_order, duplicate):
-        try:
-            parse_csv(text)
-        except ValueError as exc:
-            assert str(exc) == "HISTORICAL_DATA_TIMESTAMP_ORDER_INVALID"
-        else:
-            raise AssertionError("ambiguous source timestamp order must be rejected")
+    try:
+        parse_csv(duplicate)
+    except ValueError as exc:
+        assert str(exc) == "HISTORICAL_DATA_DUPLICATE_TIMESTAMP"
+    else:
+        raise AssertionError("duplicate candle labels must be rejected")
 
 
 def test_parse_csv_rejects_nonfinite_and_inconsistent_ohlc():
