@@ -28,3 +28,16 @@ Do not paste tokens into chat, source, or issues.
 | Yahoo | Yes | Research fallback |
 
 See `docs/OPERATIONAL_STATUS.md`.
+
+## Sanitized provider failure diagnostics
+
+The live loop never prints raw provider exception text, request URLs, or query parameters. It now records a bounded failure code after each failed provider:
+
+- `NOT_CONFIGURED` — the provider credential or symbol is not configured.
+- `HTTP_401`, `HTTP_403`, `HTTP_429`, etc. — HTTP status only; response body and URL are omitted.
+- `NETWORK_ERROR` / `TIMEOUT` — transport failure.
+- `PROVIDER_REJECTED` — provider returned its documented error payload.
+- `NO_COMPLETE_CANDLES`, `NO_CLOSED_CANDLES`, `STALE_CANDLES`, `INSUFFICIENT_CONTIGUOUS_CANDLES` — data-quality/freshness rejection.
+- `UNCLASSIFIED_VALUE_ERROR` — a value/payload error that needs code-level investigation without exposing the raw message.
+
+A successful workflow with `LIVE_CYCLE_HOLD` is not a successful forecast. It means no new prediction was emitted for that cycle. A live-data pilot requires a recent `LIVE_FEED_PROVIDER_SELECTED` record and a fresh closed candle with provider, timestamp, age, and payload provenance.
