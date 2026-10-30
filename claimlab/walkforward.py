@@ -29,15 +29,14 @@ DATASET_URL = (
 
 
 def parse_csv(text: str) -> list[dict]:
-    """Parse the source in its original order and reject ambiguous market rows."""
+    """Normalize candle timestamps, sort deterministically, and reject bad rows."""
     rows = []
     reader = csv.DictReader(io.StringIO(text))
     required = {"datetime", "open", "high", "low", "close", "volume"}
     if not required.issubset(reader.fieldnames or set()):
         raise ValueError("HISTORICAL_DATA_SCHEMA_MISMATCH")
 
-    previous_timestamp = None
-    for line_number, row in enumerate(reader, start=2):
+    for row in reader:
         try:
             ts = datetime.fromisoformat(row["datetime"].replace("Z", "+00:00"))
         except (AttributeError, TypeError, ValueError) as exc:
@@ -47,8 +46,6 @@ def parse_csv(text: str) -> list[dict]:
             # an explicit offset. Do not infer local machine timezone.
             ts = ts.replace(tzinfo=timezone.utc)
         ts = ts.astimezone(timezone.utc)
-        if previous_timestamp is not None and ts <= previous_timestamp:
-            raise ValueError("HISTORICAL_DATA_TIMESTAMP_ORDER_INVALID")
 
         try:
             open_price = float(row["open"])
@@ -79,10 +76,14 @@ def parse_csv(text: str) -> list[dict]:
                 "volume": volume,
             }
         )
-        previous_timestamp = ts
 
     if not rows:
         raise ValueError("HISTORICAL_DATA_EMPTY")
+    # The immutable dataset hash covers the original source bytes. Evaluation
+    # uses a deterministic UTC sort, while duplicate candle labels fail closed.
+    rows.sort(key=lambda item: item["timestamp"])
+    if any(rows[i]["timestamp"] <= rows[i - 1]["timestamp"] for i in range(1, len(rows))):
+        raise ValueError("HISTORICAL_DATA_DUPLICATE_TIMESTAMP")
     return rows
 
 
@@ -410,7 +411,8 @@ def build_capsule(
             "row_count": len(parse_csv(dataset_text)),
             "first_timestamp": _iso(parse_csv(dataset_text)[0]["timestamp"]),
             "last_timestamp": _iso(parse_csv(dataset_text)[-1]["timestamp"]),
-            "timestamp_contract": "datetime identifies candle open; timezone-aware values normalize to UTC; naive source timestamps are interpreted as UTC; source order must be strictly increasing",
+            "timestamp_contract": "datetime identifies candle open; timezone-aware values normalize to UTC; naive source timestamps are interpreted as UTC",
+            "source_order_normalization": "stable ascending sort by UTC candle-open timestamp; duplicate timestamps rejected",
             "row_validation": "unique increasing timestamps; finite positive OHLC; consistent high/low; nonnegative volume",
         },
         "execution": {
