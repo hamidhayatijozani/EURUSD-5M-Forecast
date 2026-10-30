@@ -29,6 +29,9 @@ Do not paste tokens into chat, source, or issues.
 
 See `docs/OPERATIONAL_STATUS.md`.
 
+
+Twelve Data intraday requests explicitly set `timezone=UTC` and `include_ohlc=true`. The parser treats its naive `datetime` strings as UTC only under that pinned request contract; do not remove the timezone parameter without changing the parser and its tests.
+
 ## Sanitized provider failure diagnostics
 
 The live loop never prints raw provider exception text, request URLs, or query parameters. It now records a bounded failure code after each failed provider:

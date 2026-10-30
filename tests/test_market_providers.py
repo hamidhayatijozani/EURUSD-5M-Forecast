@@ -17,6 +17,27 @@ def test_oanda_parser_keeps_only_complete_mid_candles():
     assert result["indicators"]["quote"][0]["close"] == [1.15]
 
 
+
+def test_twelvedata_fetch_pins_intraday_timestamps_to_utc_and_requests_ohlc(monkeypatch):
+    monkeypatch.setenv("TWELVEDATA_API_KEY", "test-key")
+    captured = {}
+    payload = {"values": [{
+        "datetime": "2026-10-12 12:00:00",
+        "open": "1.1", "high": "1.2", "low": "1.0", "close": "1.15",
+    }]}
+
+    def fake_get_json(url):
+        captured["url"] = url
+        return payload
+
+    monkeypatch.setattr(mp, "_get_json", fake_get_json)
+    result = mp._fetch_twelvedata("EURUSD", "1min")
+
+    assert "timezone=UTC" in captured["url"]
+    assert "include_ohlc=true" in captured["url"]
+    assert len(result["timestamp"]) == 1
+
+
 def test_twelvedata_parser_orders_candles_oldest_first():
     payload = {"values": [
         {"datetime": "2026-10-12 12:01:00", "open": "1.2", "high": "1.3",
