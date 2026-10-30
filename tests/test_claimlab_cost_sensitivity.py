@@ -37,10 +37,10 @@ def test_cost_sensitivity_reprices_frozen_predictions_without_mutating_input():
     medium_key = "spread_0.5pip_slippage_0.10pip"
     high_key = "spread_1.0pip_slippage_0.25pip"
     assert set(scenarios) == {low_key, low_slip_key, medium_key, high_key}
-    assert scenarios[low_key]["total_round_trip_cost"] == 0.00002
-    assert scenarios[low_slip_key]["total_round_trip_cost"] == 0.00003
-    assert scenarios[medium_key]["total_round_trip_cost"] == 0.00006
-    assert scenarios[high_key]["total_round_trip_cost"] == 0.000125
+    assert abs(scenarios[low_key]["total_round_trip_cost"] - 0.00002) < 1e-15
+    assert abs(scenarios[low_slip_key]["total_round_trip_cost"] - 0.00003) < 1e-15
+    assert abs(scenarios[medium_key]["total_round_trip_cost"] - 0.00006) < 1e-15
+    assert abs(scenarios[high_key]["total_round_trip_cost"] - 0.000125) < 1e-15
     assert scenarios[medium_key]["commission_cost"] == 0.0
 
     low = scenarios[low_key]["metrics"]
