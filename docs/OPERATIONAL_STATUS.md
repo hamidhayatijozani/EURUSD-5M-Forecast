@@ -4,7 +4,7 @@ Last update: **2026-10-30** (UTC)
 
 ## Current truth
 
-- Main code under evaluation: `60c432775d9dd6f4d7e5cc219a4871cd7cc234a0`.
+- Main HEAD at this evidence cut-off: `af656417a7896caca5c037d3ae3602d486639d81` (automated live-evidence persistence commit). The research-tests and historical walk-forward evidence were executed against code SHA `60c432775d9dd6f4d7e5cc219a4871cd7cc234a0`.
 - Research test suite: **PASS**, 174 tests — [run 41011392888](https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/41011392888).
 - Historical ClaimLab walk-forward: **PASS as a reproducible computation; model verdict KILLED** — [run 41011392998](https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/41011392998), [evidence artifact](https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/41011392998/artifacts/12958091586).
 - Multi-source market research: **PASS as a completed job, but falls back to Yahoo EURUSD-only** because only 23 common closed candles were available and 63 were required — [run 41011392830](https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/41011392830).
