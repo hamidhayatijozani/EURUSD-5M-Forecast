@@ -32,22 +32,30 @@ def test_cost_sensitivity_reprices_frozen_predictions_without_mutating_input():
 
     assert rows == original
     scenarios = result["scenarios"]
-    assert set(scenarios) == {"0.2_pip", "0.5_pip", "1.0_pip"}
-    assert scenarios["0.2_pip"]["total_round_trip_cost"] == 0.00002
-    assert scenarios["0.5_pip"]["total_round_trip_cost"] == 0.00005
-    assert scenarios["1.0_pip"]["total_round_trip_cost"] == 0.0001
+    low_key = "spread_0.2pip_slippage_0.00pip"
+    low_slip_key = "spread_0.2pip_slippage_0.10pip"
+    medium_key = "spread_0.5pip_slippage_0.10pip"
+    high_key = "spread_1.0pip_slippage_0.25pip"
+    assert set(scenarios) == {low_key, low_slip_key, medium_key, high_key}
+    assert abs(scenarios[low_key]["total_round_trip_cost"] - 0.00002) < 1e-15
+    assert abs(scenarios[low_slip_key]["total_round_trip_cost"] - 0.00003) < 1e-15
+    assert abs(scenarios[medium_key]["total_round_trip_cost"] - 0.00006) < 1e-15
+    assert abs(scenarios[high_key]["total_round_trip_cost"] - 0.000125) < 1e-15
+    assert scenarios[medium_key]["commission_cost"] == 0.0
 
-    low = scenarios["0.2_pip"]["metrics"]
-    medium = scenarios["0.5_pip"]["metrics"]
-    high = scenarios["1.0_pip"]["metrics"]
-    assert low["n"] == medium["n"] == high["n"] == 3
-    assert low["friction_adjusted_return"] > medium["friction_adjusted_return"]
+    low = scenarios[low_key]["metrics"]
+    low_slip = scenarios[low_slip_key]["metrics"]
+    medium = scenarios[medium_key]["metrics"]
+    high = scenarios[high_key]["metrics"]
+    assert low["n"] == low_slip["n"] == medium["n"] == high["n"] == 3
+    assert low["friction_adjusted_return"] > low_slip["friction_adjusted_return"]
+    assert low_slip["friction_adjusted_return"] > medium["friction_adjusted_return"]
     assert medium["friction_adjusted_return"] > high["friction_adjusted_return"]
-    assert low["hit_rate"] >= medium["hit_rate"] >= high["hit_rate"]
+    assert low["hit_rate"] >= low_slip["hit_rate"] >= medium["hit_rate"] >= high["hit_rate"]
 
 
 def test_cost_sensitivity_rejects_negative_costs():
     import pytest
 
     with pytest.raises(ValueError, match="NEGATIVE_COST_SCENARIO"):
-        cost_sensitivity([_row(0.0001, 0.0002)], scenarios_pips=(-0.1,))
+        cost_sensitivity([_row(0.0001, 0.0002)], scenarios=((-0.1, 0.0),))
