@@ -8,7 +8,7 @@ Last update: **2026-10-30** (UTC)
 - Research test suite: **PASS**, 174 tests — [run 41011392888](https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/41011392888).
 - Historical ClaimLab walk-forward: **PASS as a reproducible computation; model verdict KILLED** — [run 41011392998](https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/41011392998), [evidence artifact](https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/41011392998/artifacts/12958091586).
 - Multi-source market research: **PASS as a completed job, but falls back to Yahoo EURUSD-only** because only 23 common closed candles were available and 63 were required — [run 41011392830](https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/41011392830).
-- Live-feed verification: **UNKNOWN / NOT_VERIFIED**. The separate market probe reached the historical dataset but reported it stale by 2,970,224 seconds against a 900-second freshness threshold; `live=false` — [run 41011372878](https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/41011372878).
+- Live-feed verification: **PARTIAL**. [Live-minute run 41011372782](https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/41011372782) selected Yahoo after `oanda:NOT_CONFIGURED` and `twelvedata:NO_CLOSED_CANDLES`. It emitted one fresh EURUSD 1-minute forecast (data age 78.35s against a 90s limit), then held four cycles as evidence aged past the limit (95.8s, 99.6s, 103.3s). This proves one fresh Yahoo snapshot, not a sustained feed or Twelve Data/OANDA availability. The post-timezone-fix live run [41011392858](https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/41011392858) is still in progress.
 - Live broker execution and real-money orders: **NOT_RUN**. The workflows evaluate data and paper ledgers only.
 
 ## Historical ClaimLab walk-forward
@@ -64,6 +64,14 @@ The killed candidate and empty survivor set must remain visible. Do not retune o
 - Walk-forward forecasts are issued after the feature bar closes and resolve at the next contiguous 5-minute bar close. Gaps are skipped rather than treated as five-minute targets.
 - PR #76 added deterministic UTC normalization, row validation, duplicate rejection, and separate spread/slippage scenarios; merged as `d4c9c99fdd14080cde572a7bfb837533f8cc3a31`.
 - PR #77 pinned Twelve Data intraday requests to `timezone=UTC` and explicitly requested OHLC fields; merged as `60c432775d9dd6f4d7e5cc219a4871cd7cc234a0`. The 174-test main run passed, but the live workflow has not yet supplied a fresh Twelve Data/OANDA observation proving that the provider fix restored live coverage.
+
+## Forward-paper evidence and provider limitations
+
+- The live-minute run above recorded one `FLAT` forecast with `signal_contradiction=true`, `context_coverage=0`, `news_status=UNAVAILABLE:URLError`, and `power_status=UNAVAILABLE:NO_API_KEY`. It did not place an order.
+- Its paper-account evaluation used 398 input rows: 276 eligible resolved predictions, 34 missing/invalid-evidence rows, 48 unresolved rows, and 40 wrong/missing-contract rows. The 208 paper trades had 69 wins and 139 losses (33.17% win rate). Net PnL was -8.34 on a 10,000 starting balance at the assumed 0.2-pip cost, -20.80 at 0.5 pip, and -41.54 at 1.0 pip. `profitability_claim_allowed=false`.
+- The frozen live cross-asset v2 family had 279 resolved observations; all candidates remained `INSUFFICIENT_DATA`, no candidate survived, and the reported two-sided bootstrap p-values were 1.0. This is not evidence of an edge.
+- The multi-source research run [41011392830](https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/41011392830) completed but fell back to Yahoo EURUSD-only because only 23 common closed candles were available (63 required).
+- A separate historical-data probe [41011372878](https://github.com/hamidhayatijozani/EURUSD-5M-Forecast/actions/runs/41011372878) found the historical dataset 2,970,224 seconds old against a 900-second freshness threshold; that result is about the historical artifact, not the one fresh Yahoo minute snapshot above.
 
 ## Required before a customer can treat this as live-data research
 
