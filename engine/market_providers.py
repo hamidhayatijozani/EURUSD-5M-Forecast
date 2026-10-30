@@ -122,6 +122,7 @@ def _fetch_twelvedata(symbol, interval):
         raise RuntimeError("TWELVEDATA_NOT_CONFIGURED_FOR_SYMBOL")
     url = "https://api.twelvedata.com/time_series?" + urlencode({
         "symbol": provider_symbol, "interval": interval, "outputsize": 120 if interval == "1min" else 288,
+        "timezone": "UTC", "include_ohlc": "true",
         "apikey": key, "format": "JSON"
     })
     return _parse_twelvedata(_get_json(url))
