@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from urllib.error import HTTPError
 
 from engine import market_providers as mp
 from engine.live_feed import BASE_1M, _fetch
@@ -102,3 +103,69 @@ def test_live_minute_failover_skips_stale_twelvedata_candles(monkeypatch):
 
     assert result == fresh
     assert mp.LAST_PROVIDER_BY_SYMBOL["EURUSD"] == "yahoo"
+
+def test_safe_failure_codes_are_actionable_without_leaking_provider_details():
+    assert mp._safe_failure_code(ValueError("stale one-minute OHLC candles")) == "STALE_CANDLES"
+    assert mp._safe_failure_code(ValueError("Twelve Data returned provider error")) == "PROVIDER_REJECTED"
+    assert mp._safe_failure_code(RuntimeError("OANDA_NOT_CONFIGURED_FOR_SYMBOL")) == "NOT_CONFIGURED"
+
+    error = HTTPError(
+        "https://api.twelvedata.com/time_series?apikey=do-not-log",
+        429,
+        "Too Many Requests",
+        {},
+        None,
+    )
+    assert mp._safe_failure_code(error) == "HTTP_429"
+    assert "do-not-log" not in mp._safe_failure_code(error)
+
+
+def test_all_provider_failures_report_safe_codes_only(monkeypatch):
+    monkeypatch.setenv("LIVE_FEED_PROVIDERS", "twelvedata,yahoo")
+
+    def fail_with_secret(*_args):
+        raise ValueError("apikey=do-not-log")
+
+    def fail_rate_limited(*_args):
+        raise HTTPError(
+            "https://query1.finance.yahoo.com/chart?token=do-not-log",
+            429,
+            "Too Many Requests",
+            {},
+            None,
+        )
+
+    monkeypatch.setattr(mp, "_fetch_twelvedata", fail_with_secret)
+    monkeypatch.setattr(mp, "_fetch_yahoo", fail_rate_limited)
+
+    try:
+        mp.fetch_chart_result("EURUSD", "1m")
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("all providers failed, expected RuntimeError")
+
+    assert message == (
+        "ALL_MARKET_PROVIDERS_FAILED:"
+        "twelvedata:UNCLASSIFIED_VALUE_ERROR,yahoo:HTTP_429"
+    )
+    assert "do-not-log" not in message
+
+
+def test_live_validator_failure_is_classified_without_raw_exception_text(monkeypatch):
+    monkeypatch.setenv("LIVE_FEED_PROVIDERS", "yahoo")
+    expected = {"timestamp": [1], "indicators": {"quote": [{"close": [1.1]}]}}
+    monkeypatch.setattr(mp, "_fetch_yahoo", lambda *args: expected)
+
+    def stale_validator(_result):
+        raise ValueError("stale one-minute OHLC candles")
+
+    try:
+        mp.fetch_chart_result("EURUSD", "1m", result_validator=stale_validator)
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("stale provider result should be rejected")
+
+    assert message == "ALL_MARKET_PROVIDERS_FAILED:yahoo:STALE_CANDLES"
+

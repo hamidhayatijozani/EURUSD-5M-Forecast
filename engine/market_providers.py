@@ -9,6 +9,7 @@ import json
 import os
 from collections.abc import Callable
 from datetime import datetime, timezone
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -126,6 +127,38 @@ def _fetch_twelvedata(symbol, interval):
     return _parse_twelvedata(_get_json(url))
 
 
+_SAFE_FAILURE_MESSAGES = {
+    "OANDA_NOT_CONFIGURED_FOR_SYMBOL": "NOT_CONFIGURED",
+    "TWELVEDATA_NOT_CONFIGURED_FOR_SYMBOL": "NOT_CONFIGURED",
+    "Twelve Data returned provider error": "PROVIDER_REJECTED",
+    "provider returned no complete candles": "NO_COMPLETE_CANDLES",
+    "invalid or unordered candle timestamps": "INVALID_CANDLE_TIMESTAMPS",
+    "missing one-minute OHLC payload": "MISSING_OHLC_PAYLOAD",
+    "incomplete one-minute OHLC arrays": "INCOMPLETE_OHLC_ARRAYS",
+    "no closed one-minute OHLC candles": "NO_CLOSED_CANDLES",
+    "stale one-minute OHLC candles": "STALE_CANDLES",
+    "insufficient contiguous closed one-minute OHLC candles": "INSUFFICIENT_CONTIGUOUS_CANDLES",
+    "unsupported OANDA interval": "UNSUPPORTED_INTERVAL",
+    "unsupported Yahoo symbol": "UNSUPPORTED_SYMBOL",
+}
+
+
+def _safe_failure_code(exc: Exception) -> str:
+    """Return a bounded diagnostic code; never expose provider URLs or payload text."""
+    if isinstance(exc, HTTPError):
+        return f"HTTP_{int(exc.code)}"
+    if isinstance(exc, URLError):
+        return "NETWORK_ERROR"
+    if isinstance(exc, TimeoutError):
+        return "TIMEOUT"
+    known = _SAFE_FAILURE_MESSAGES.get(str(exc))
+    if known:
+        return known
+    if isinstance(exc, (KeyError, TypeError, ValueError)):
+        return "UNCLASSIFIED_VALUE_ERROR"
+    return type(exc).__name__.upper()
+
+
 def fetch_chart_result(
     symbol: str,
     interval: str,
@@ -180,5 +213,5 @@ def fetch_chart_result(
         except Exception as exc:
             # Deliberately do not log exception text: provider URLs/errors can
             # echo query parameters, including a Twelve Data API key.
-            failures.append(provider + ":" + type(exc).__name__)
+            failures.append(provider + ":" + _safe_failure_code(exc))
     raise RuntimeError("ALL_MARKET_PROVIDERS_FAILED:" + ",".join(failures))
