@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from urllib.error import HTTPError
 
 from engine import market_providers as mp
 from engine.live_feed import BASE_1M, _fetch
