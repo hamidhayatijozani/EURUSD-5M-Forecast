@@ -285,13 +285,10 @@ def cost_sensitivity(
     for spread_pips, slippage_pips in scenarios:
         spread_pips = float(spread_pips)
         slippage_pips = float(slippage_pips)
-        if (
-            not math.isfinite(spread_pips)
-            or not math.isfinite(slippage_pips)
-            or spread_pips < 0
-            or slippage_pips < 0
-        ):
+        if not math.isfinite(spread_pips) or not math.isfinite(slippage_pips):
             raise ValueError("INVALID_COST_SCENARIO")
+        if spread_pips < 0 or slippage_pips < 0:
+            raise ValueError("NEGATIVE_COST_SCENARIO")
 
         spread_cost = spread_pips * 0.0001
         slippage_cost = slippage_pips * 0.0001
