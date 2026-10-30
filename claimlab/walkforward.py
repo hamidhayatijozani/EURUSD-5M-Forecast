@@ -10,6 +10,7 @@ import csv
 import hashlib
 import io
 import json
+import math
 from datetime import datetime, timedelta, timezone
 from statistics import mean, pstdev
 from typing import Iterable, Sequence
@@ -28,26 +29,60 @@ DATASET_URL = (
 
 
 def parse_csv(text: str) -> list[dict]:
+    """Parse the source in its original order and reject ambiguous market rows."""
     rows = []
     reader = csv.DictReader(io.StringIO(text))
     required = {"datetime", "open", "high", "low", "close", "volume"}
     if not required.issubset(reader.fieldnames or set()):
         raise ValueError("HISTORICAL_DATA_SCHEMA_MISMATCH")
-    for row in reader:
-        ts = datetime.fromisoformat(row["datetime"].replace("Z", "+00:00"))
+
+    previous_timestamp = None
+    for line_number, row in enumerate(reader, start=2):
+        try:
+            ts = datetime.fromisoformat(row["datetime"].replace("Z", "+00:00"))
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise ValueError("HISTORICAL_DATA_INVALID_TIMESTAMP") from exc
         if ts.tzinfo is None:
+            # The canonical source CSV is UTC-labelled by contract but omits
+            # an explicit offset. Do not infer local machine timezone.
             ts = ts.replace(tzinfo=timezone.utc)
+        ts = ts.astimezone(timezone.utc)
+        if previous_timestamp is not None and ts <= previous_timestamp:
+            raise ValueError("HISTORICAL_DATA_TIMESTAMP_ORDER_INVALID")
+
+        try:
+            open_price = float(row["open"])
+            high_price = float(row["high"])
+            low_price = float(row["low"])
+            close_price = float(row["close"])
+            volume = float(row.get("volume") or 0.0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("HISTORICAL_DATA_NON_NUMERIC_VALUE") from exc
+
+        values = (open_price, high_price, low_price, close_price, volume)
+        if not all(math.isfinite(value) for value in values):
+            raise ValueError("HISTORICAL_DATA_NONFINITE_VALUE")
+        if min(open_price, high_price, low_price, close_price) <= 0:
+            raise ValueError("HISTORICAL_DATA_NON_POSITIVE_PRICE")
+        if low_price > min(open_price, close_price) or high_price < max(open_price, close_price) or low_price > high_price:
+            raise ValueError("HISTORICAL_DATA_OHLC_INCONSISTENT")
+        if volume < 0:
+            raise ValueError("HISTORICAL_DATA_NEGATIVE_VOLUME")
+
         rows.append(
             {
-                "timestamp": ts.astimezone(timezone.utc),
-                "open": float(row["open"]),
-                "high": float(row["high"]),
-                "low": float(row["low"]),
-                "close": float(row["close"]),
-                "volume": float(row.get("volume") or 0.0),
+                "timestamp": ts,
+                "open": open_price,
+                "high": high_price,
+                "low": low_price,
+                "close": close_price,
+                "volume": volume,
             }
         )
-    rows.sort(key=lambda x: x["timestamp"])
+        previous_timestamp = ts
+
+    if not rows:
+        raise ValueError("HISTORICAL_DATA_EMPTY")
     return rows
 
 
@@ -225,24 +260,42 @@ def regime_robustness(
 
 
 
+DEFAULT_COST_SCENARIOS_PIPS = (
+    (0.2, 0.0),
+    (0.2, 0.1),
+    (0.5, 0.1),
+    (1.0, 0.25),
+)
+
+
 def cost_sensitivity(
     observation_rows: Sequence[dict],
     *,
-    scenarios_pips: Sequence[float] = (0.2, 0.5, 1.0),
+    scenarios: Sequence[tuple[float, float]] = DEFAULT_COST_SCENARIOS_PIPS,
     bootstrap_resamples: int = 2000,
 ) -> dict:
-    """Reprice frozen forecasts under predeclared round-trip cost scenarios.
+    """Reprice frozen forecasts with separately declared spread and slippage.
 
-    This never changes a forecast or target return. It recomputes only the
-    trade-direction payoff, cost deduction, and cost-sensitive hit indicator.
-    Cost inputs are scenarios, not observed broker quotes.
+    Each tuple is (round-trip spread pips, round-trip slippage pips). The
+    scenarios are sensitivities, not observed broker quotes. Commission is
+    explicitly left unpriced until a broker/venue schedule is supplied.
     """
     results = {}
-    for pips in scenarios_pips:
-        pips = float(pips)
-        if pips < 0:
-            raise ValueError("NEGATIVE_COST_SCENARIO")
-        total_cost = pips * 0.0001
+    for spread_pips, slippage_pips in scenarios:
+        spread_pips = float(spread_pips)
+        slippage_pips = float(slippage_pips)
+        if (
+            not math.isfinite(spread_pips)
+            or not math.isfinite(slippage_pips)
+            or spread_pips < 0
+            or slippage_pips < 0
+        ):
+            raise ValueError("INVALID_COST_SCENARIO")
+
+        spread_cost = spread_pips * 0.0001
+        slippage_cost = slippage_pips * 0.0001
+        commission_cost = 0.0
+        total_cost = spread_cost + slippage_cost + commission_cost
         scenario_rows = []
         for source in observation_rows:
             row = dict(source)
@@ -251,30 +304,40 @@ def cost_sensitivity(
             direction = 1 if prediction > 0 else -1 if prediction < 0 else 0
             gross = direction * actual
             row["gross_return"] = gross
-            row["spread_cost"] = total_cost
-            row["slippage_cost"] = 0.0
-            row["commission_cost"] = 0.0
+            row["spread_cost"] = spread_cost
+            row["slippage_cost"] = slippage_cost
+            row["commission_cost"] = commission_cost
             row["friction_adjusted_return"] = gross - total_cost
             row["direction_hit"] = (
                 (direction == 1 and actual > total_cost)
                 or (direction == -1 and actual < -total_cost)
             )
             scenario_rows.append(row)
+
         metrics = score(
             scenario_rows,
             horizon=5,
             bootstrap_resamples=bootstrap_resamples,
             alpha=0.05,
         )
-        key = f"{pips:.1f}_pip"
+        key = f"spread_{spread_pips:.1f}pip_slippage_{slippage_pips:.2f}pip"
         results[key] = {
+            "spread_pips": spread_pips,
+            "slippage_pips": slippage_pips,
+            "spread_cost": spread_cost,
+            "slippage_cost": slippage_cost,
+            "commission_cost": commission_cost,
             "total_round_trip_cost": total_cost,
             "cost_source": "declared_scenario_not_broker_quote",
             "metrics": metrics,
         }
     return {
-        "method": "reprice frozen forecast direction and actual return",
+        "method": "reprice frozen forecast direction and actual return by cost component",
         "pip_size": 0.0001,
+        "scenario_units": "round-trip pips",
+        "commission_boundary": (
+            "Commission is not priced: no broker/venue commission schedule was supplied."
+        ),
         "scenarios": results,
         "scientific_boundary": (
             "Sensitivity analysis only; not executable broker-cost evidence."
@@ -306,7 +369,7 @@ def build_capsule(
     )
     stats["cost_sensitivity"] = cost_sensitivity(
         rows,
-        scenarios_pips=(0.2, 0.5, 1.0),
+        scenarios=DEFAULT_COST_SCENARIOS_PIPS,
         bootstrap_resamples=2000,
     )
     registry = load_registry()
@@ -347,6 +410,8 @@ def build_capsule(
             "row_count": len(parse_csv(dataset_text)),
             "first_timestamp": _iso(parse_csv(dataset_text)[0]["timestamp"]),
             "last_timestamp": _iso(parse_csv(dataset_text)[-1]["timestamp"]),
+            "timestamp_contract": "datetime identifies candle open; timezone-aware values normalize to UTC; naive source timestamps are interpreted as UTC; source order must be strictly increasing",
+            "row_validation": "unique increasing timestamps; finite positive OHLC; consistent high/low; nonnegative volume",
         },
         "execution": {
             "code_commit": code_commit,
