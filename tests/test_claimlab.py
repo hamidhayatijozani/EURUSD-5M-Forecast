@@ -92,18 +92,32 @@ def test_ledger_is_append_only_and_detects_tampering(tmp_path: Path):
 
 
 
-def test_legacy_observation_without_provenance_is_quarantined():
+@pytest.mark.parametrize(
+    "legacy_fields",
+    [
+        {
+            "provider": "Yahoo",
+            "source_candle_ts": "",
+            "observed_at": "",
+            "data_age_seconds": 0.0,
+            "freshness_limit_seconds": 90.0,
+            "freshness_status": "FRESH",
+        },
+        {
+            "provider": None,
+            "source_candle_ts": None,
+            "observed_at": None,
+            "data_age_seconds": None,
+            "freshness_limit_seconds": None,
+            "freshness_status": None,
+        },
+    ],
+)
+def test_legacy_observation_without_provenance_is_quarantined(legacy_fields):
     legacy_prediction = prediction()
     for key in ("data_mode", "provider", "source_candle_ts", "freshness_status"):
         legacy_prediction.pop(key, None)
-    legacy_prediction.update({
-        "provider": "Yahoo",
-        "source_candle_ts": "",
-        "observed_at": "",
-        "data_age_seconds": 0.0,
-        "freshness_limit_seconds": 90.0,
-        "freshness_status": "FRESH",
-    })
+    legacy_prediction.update(legacy_fields)
     resolved = resolve(
         legacy_prediction,
         actual=0.0015,
