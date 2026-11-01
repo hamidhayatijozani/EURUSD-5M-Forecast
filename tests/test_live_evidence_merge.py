@@ -78,6 +78,30 @@ def test_claim_ledger_merge_rebuilds_hash_chain(tmp_path, monkeypatch):
     assert {row["prediction_id"] for row in ledger._rows()} == {"p1", "p2"}
 
 
+
+def test_claim_ledger_merge_quarantines_legacy_rows_without_provenance(tmp_path, monkeypatch):
+    body = json.loads(_observation("legacy-no-provenance", 0).canonical())
+    body["schema_version"] = "claimlab.observation.v1"
+    body.pop("data_mode", None)
+    for key in (
+        "provider", "source_candle_ts", "observed_at",
+        "data_age_seconds", "freshness_limit_seconds", "freshness_status",
+    ):
+        body[key] = None
+
+    ledger_path = tmp_path / "legacy-ledger.jsonl"
+    monkeypatch.setattr(loop, "CLAIM_LEDGER_PATH", ledger_path)
+    loop._merge_claim_ledger_texts(json.dumps(body) + "\\n", "")
+
+    ledger = Ledger(ledger_path)
+    assert ledger.verify()
+    stored = ledger._rows()[0]
+    assert stored["status"] == "INVALID"
+    assert stored["data_mode"] == "UNVERIFIED"
+    assert stored["provider"] == "UNVERIFIED"
+    assert stored["freshness_status"] == "UNVERIFIED"
+
+
 def test_cross_asset_merge_rechains_and_deduplicates(tmp_path, monkeypatch):
     def write_branch(path, prediction_id, candidate_id):
         monkeypatch.setattr(loop, "CROSS_ASSET_LEDGER_PATH", path)
