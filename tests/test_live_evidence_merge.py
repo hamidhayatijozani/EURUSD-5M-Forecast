@@ -14,7 +14,7 @@ def _observation(prediction_id, issued_minute):
     target = f"2026-10-12T{12 + (issued_minute + 5) // 60:02d}:{(issued_minute + 5) % 60:02d}:00+00:00"
     resolved = target
     return Observation(
-        schema_version="claimlab.observation.v1",
+        schema_version="claimlab.observation.v2",
         prediction_id=prediction_id,
         issued_at=issued,
         target_at=target,
@@ -42,6 +42,7 @@ def _observation(prediction_id, issued_minute):
         data_age_seconds=30.0,
         freshness_limit_seconds=90.0,
         freshness_status="FRESH",
+        data_mode="LIVE",
     )
 
 
