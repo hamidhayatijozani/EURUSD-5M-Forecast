@@ -91,6 +91,32 @@ def test_ledger_is_append_only_and_detects_tampering(tmp_path: Path):
     assert ledger.verify() is False
 
 
+
+def test_legacy_observation_without_provenance_is_quarantined():
+    legacy_prediction = prediction()
+    for key in ("data_mode", "provider", "source_candle_ts", "freshness_status"):
+        legacy_prediction.pop(key, None)
+    legacy_prediction.update({
+        "provider": "Yahoo",
+        "source_candle_ts": "",
+        "observed_at": "",
+        "data_age_seconds": 0.0,
+        "freshness_limit_seconds": 90.0,
+        "freshness_status": "FRESH",
+    })
+    resolved = resolve(
+        legacy_prediction,
+        actual=0.0015,
+        baseline_prediction=0.0002,
+        resolved_at="2026-10-06T10:05:00Z",
+    )
+    observation = Observation(**resolved)
+    assert observation.data_mode == "UNVERIFIED"
+    assert observation.status == "INVALID"
+    assert observation.provider == "UNVERIFIED"
+    assert observation.freshness_status == "UNVERIFIED"
+
+
 def test_arena_and_preregistered_verdict():
     rows = []
     for i in range(100):
@@ -124,6 +150,10 @@ def test_arena_and_preregistered_verdict():
 def test_arena_rejects_equal_cutoff_and_issue_timestamp():
     row = {
         "status": "VALID",
+        "data_mode": "HISTORICAL",
+        "provider": "test-historical",
+        "source_candle_ts": "2026-10-06T09:55:00Z",
+        "freshness_status": "NOT_APPLICABLE",
         "feature_cutoff_at": "2026-10-06T10:00:00Z",
         "issued_at": "2026-10-06T10:00:00Z",
         "target_at": "2026-10-06T10:05:00Z",
