@@ -50,7 +50,7 @@ def test_claimlab_observation_requires_fresh_evidence():
     import pytest
     from claimlab.schema import Observation
     base = dict(
-        schema_version="claimlab.observation.v1", prediction_id="fresh-1",
+        schema_version="claimlab.observation.v2", prediction_id="fresh-1",
         issued_at="2026-10-07T00:37:01+00:00", target_at="2026-10-07T00:42:01+00:00",
         resolved_at="2026-10-07T00:42:01+00:00", symbol="EURUSD", horizon_seconds=300,
         prediction=0.0001, actual=0.0, baseline_prediction=0.0,
@@ -60,7 +60,7 @@ def test_claimlab_observation_requires_fresh_evidence():
         code_commit="test", config_hash="cfg", claim_registry_hash="reg",
         provider="Yahoo", source_candle_ts="2026-10-07T00:36:40+00:00",
         observed_at="2026-10-07T00:37:00+00:00", data_age_seconds=20.0,
-        freshness_limit_seconds=90.0, freshness_status="FRESH",
+        freshness_limit_seconds=90.0, freshness_status="FRESH", data_mode="LIVE",
     )
     Observation(**base)
     with pytest.raises(ValueError, match="freshness limit"):
