@@ -6,6 +6,10 @@ from claimlab.walkforward import cost_sensitivity
 def _row(prediction, actual, baseline=0.0):
     return {
         "status": "VALID",
+        "data_mode": "HISTORICAL",
+        "provider": "test-historical",
+        "source_candle_ts": "2026-10-06T09:55:00Z",
+        "freshness_status": "NOT_APPLICABLE",
         "feature_cutoff_at": "2026-10-06T09:59:59Z",
         "issued_at": "2026-10-06T10:00:00Z",
         "target_at": "2026-10-06T10:05:00Z",
