@@ -12,7 +12,11 @@ from claimlab.verdict import verdict
 
 def prediction():
     return {
-        "schema_version": "claimlab.observation.v1",
+        "schema_version": "claimlab.observation.v2",
+        "data_mode": "HISTORICAL",
+        "provider": "test-historical",
+        "source_candle_ts": "2026-10-06T09:55:00Z",
+        "freshness_status": "NOT_APPLICABLE",
         "prediction_id": "p-001",
         "issued_at": "2026-10-06T10:00:00Z",
         "target_at": "2026-10-06T10:05:00Z",
@@ -92,6 +96,10 @@ def test_arena_and_preregistered_verdict():
     for i in range(100):
         rows.append({
             "status": "VALID",
+            "data_mode": "HISTORICAL",
+            "provider": "test-historical",
+            "source_candle_ts": "2026-10-06T09:55:00Z",
+            "freshness_status": "NOT_APPLICABLE",
             "feature_cutoff_at": "2026-10-06T09:59:59Z",
             "issued_at": "2026-10-06T10:00:00Z",
             "target_at": "2026-10-06T10:05:00Z",
@@ -132,11 +140,35 @@ def test_arena_rejects_equal_cutoff_and_issue_timestamp():
     assert stats["status"] == "INSUFFICIENT_DATA"
 
 
+
+def test_arena_excludes_unverified_legacy_rows():
+    row = {
+        "status": "VALID",
+        "data_mode": "UNVERIFIED",
+        "provider": "UNVERIFIED",
+        "freshness_status": "UNVERIFIED",
+        "actual": 1.0,
+        "prediction": 1.0,
+        "baseline_prediction": 0.0,
+        "friction_adjusted_return": 0.9,
+        "direction_hit": True,
+        "feature_cutoff_at": "2026-10-06T09:59:59Z",
+        "issued_at": "2026-10-06T10:00:00Z",
+        "target_at": "2026-10-06T10:05:00Z",
+        "resolved_at": "2026-10-06T10:05:00Z",
+    }
+    stats = score([row])
+    assert stats["n"] == 0
+    assert stats["provenance_rejected"] == 1
+    assert stats["status"] == "INSUFFICIENT_DATA"
+
+
 def test_arena_rejects_rows_missing_temporal_evidence():
     row = {
-        "status": "VALID", "actual": 1.0, "prediction": 1.0,
-        "baseline_prediction": 0.0, "friction_adjusted_return": 0.9,
-        "direction_hit": True,
+        "status": "VALID", "data_mode": "HISTORICAL",
+        "provider": "test-historical", "source_candle_ts": "2026-10-06T09:55:00Z",
+        "freshness_status": "NOT_APPLICABLE",
+        "feature_cutoff_at": "2026-10-06T09:59:59Z",
     }
     stats = score([row])
     assert stats["n"] == 0
