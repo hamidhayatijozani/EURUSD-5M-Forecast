@@ -91,7 +91,7 @@ def test_claim_ledger_merge_quarantines_legacy_rows_without_provenance(tmp_path,
 
     ledger_path = tmp_path / "legacy-ledger.jsonl"
     monkeypatch.setattr(loop, "CLAIM_LEDGER_PATH", ledger_path)
-    loop._merge_claim_ledger_texts(json.dumps(body) + "\\n", "")
+    loop._merge_claim_ledger_texts(json.dumps(body) + "\n", "")
 
     ledger = Ledger(ledger_path)
     assert ledger.verify()
