@@ -1,5 +1,6 @@
-"""Same-window strategy arena with strict temporal eligibility."""
+"""Same-window strategy arena with strict temporal and provenance eligibility."""
 from datetime import datetime, timezone
+import math
 from statistics import mean
 
 from .statistics import StatisticalEngine
@@ -10,6 +11,56 @@ def _parse_timestamp(value):
         raise ValueError("missing timestamp")
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _provenance_eligible(row):
+    """Require an explicit live or historical source contract before scoring."""
+    mode = row.get("data_mode")
+    provider = row.get("provider")
+    source_value = row.get("source_candle_ts")
+    if not isinstance(provider, str) or not provider.strip() or not source_value:
+        return False
+    try:
+        source = _parse_timestamp(source_value)
+        cutoff = _parse_timestamp(row["feature_cutoff_at"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    if source > cutoff:
+        return False
+
+    if mode == "HISTORICAL":
+        return (
+            row.get("freshness_status") == "NOT_APPLICABLE"
+            and row.get("observed_at") in (None, "")
+            and row.get("data_age_seconds") is None
+            and row.get("freshness_limit_seconds") is None
+        )
+
+    if mode == "LIVE":
+        required = (
+            row.get("observed_at"),
+            row.get("data_age_seconds"),
+            row.get("freshness_limit_seconds"),
+        )
+        if any(value is None or value == "" for value in required):
+            return False
+        if row.get("freshness_status") != "FRESH":
+            return False
+        try:
+            observed = _parse_timestamp(row["observed_at"])
+            age = float(row["data_age_seconds"])
+            limit = float(row["freshness_limit_seconds"])
+        except (KeyError, TypeError, ValueError):
+            return False
+        return (
+            source <= observed
+            and math.isfinite(age)
+            and math.isfinite(limit)
+            and 0 <= age <= limit
+            and limit > 0
+        )
+
+    return False
 
 
 def _temporally_eligible(row):
@@ -33,13 +84,16 @@ def score(
     alpha=0.05,
 ):
     candidates = [r for r in rows if r.get("status") == "VALID"]
-    valid = [r for r in candidates if _temporally_eligible(r)]
-    rejected_temporal = len(candidates) - len(valid)
+    provenance_valid = [r for r in candidates if _provenance_eligible(r)]
+    rejected_provenance = len(candidates) - len(provenance_valid)
+    valid = [r for r in provenance_valid if _temporally_eligible(r)]
+    rejected_temporal = len(provenance_valid) - len(valid)
     if not valid:
         return {
             "n": 0,
             "status": "INSUFFICIENT_DATA",
             "temporal_rejected": rejected_temporal,
+            "provenance_rejected": rejected_provenance,
         }
 
     mae = mean(abs(float(r["actual"]) - float(r[prediction_key])) for r in valid)
@@ -47,6 +101,7 @@ def score(
     base = {
         "n": len(valid),
         "temporal_rejected": rejected_temporal,
+        "provenance_rejected": rejected_provenance,
         "mae": mae,
         "baseline_mae": bmae,
         "mae_delta": bmae - mae,
