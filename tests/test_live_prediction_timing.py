@@ -63,5 +63,8 @@ def test_claimlab_observation_requires_fresh_evidence():
         freshness_limit_seconds=90.0, freshness_status="FRESH", data_mode="LIVE",
     )
     Observation(**base)
+    legacy_complete = Observation(**{key: value for key, value in base.items() if key != "data_mode"})
+    assert legacy_complete.data_mode == "LIVE"
+    assert legacy_complete.status == "VALID"
     with pytest.raises(ValueError, match="freshness limit"):
         Observation(**{**base, "data_age_seconds": 91.0})
