@@ -17,7 +17,9 @@ def test_temporal_contract_is_hard_invariant():
 
 def test_resolver_preserves_target_actual_not_later_price():
     t=datetime(2026,1,1,tzinfo=timezone.utc)
-    p={"schema_version":"claimlab.observation.v1","prediction_id":"p1",
+    p={"schema_version":"claimlab.observation.v2","data_mode":"HISTORICAL",
+       "provider":"test-historical","source_candle_ts":ts(t-timedelta(minutes=5)),
+       "freshness_status":"NOT_APPLICABLE","prediction_id":"p1",
        "issued_at":ts(t),"target_at":ts(t+timedelta(minutes=5)),
        "feature_cutoff_at":ts(t-timedelta(seconds=1)),"symbol":"EURUSD","horizon_seconds":300,
        "prediction":0.001}
@@ -28,8 +30,10 @@ def test_resolver_preserves_target_actual_not_later_price():
 def test_observation_rejects_horizon_mismatch():
     t=datetime(2026,1,1,tzinfo=timezone.utc)
     try:
-        Observation("v1","p1",ts(t),ts(t+timedelta(minutes=5)),ts(t+timedelta(minutes=5)),
-          "EURUSD",60,.0,.0,.0,.0,.0,False,0,0,0,0,0,ts(t),"test","cfg","reg")
+        Observation("claimlab.observation.v2","p1",ts(t),ts(t+timedelta(minutes=5)),ts(t+timedelta(minutes=5)),
+          "EURUSD",60,.0,.0,.0,.0,.0,False,0,0,0,0,0,ts(t-timedelta(seconds=1)),"test","cfg","reg",
+          provider="test-historical",source_candle_ts=ts(t-timedelta(minutes=5)),
+          freshness_status="NOT_APPLICABLE",data_mode="HISTORICAL")
     except ValueError:
         pass
     else:
