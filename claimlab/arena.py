@@ -13,6 +13,16 @@ def _parse_timestamp(value):
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
+
+def _parse_aware_timestamp(value):
+    if not isinstance(value, str) or not value:
+        raise ValueError("missing timezone-aware timestamp")
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        raise ValueError("timestamp must include timezone")
+    return parsed.astimezone(timezone.utc)
+
+
 def _provenance_eligible(row):
     """Require an explicit live or historical source contract before scoring."""
     mode = row.get("data_mode")
@@ -21,8 +31,8 @@ def _provenance_eligible(row):
     if not isinstance(provider, str) or not provider.strip() or not source_value:
         return False
     try:
-        source = _parse_timestamp(source_value)
-        cutoff = _parse_timestamp(row["feature_cutoff_at"])
+        source = _parse_aware_timestamp(source_value)
+        cutoff = _parse_aware_timestamp(row["feature_cutoff_at"])
     except (KeyError, TypeError, ValueError):
         return False
     if source > cutoff:
@@ -47,7 +57,7 @@ def _provenance_eligible(row):
         if row.get("freshness_status") != "FRESH":
             return False
         try:
-            observed = _parse_timestamp(row["observed_at"])
+            observed = _parse_aware_timestamp(row["observed_at"])
             age = float(row["data_age_seconds"])
             limit = float(row["freshness_limit_seconds"])
         except (KeyError, TypeError, ValueError):
