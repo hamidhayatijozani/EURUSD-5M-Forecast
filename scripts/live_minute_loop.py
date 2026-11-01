@@ -353,7 +353,7 @@ def settle(rows,times,prices,state,code_commit):
         provenance=require_freshness_provenance(row)
         try:
             obs=resolve({
-              "schema_version":"claimlab.observation.v1","prediction_id":row["prediction_id"],
+              "schema_version":"claimlab.observation.v2","data_mode":"LIVE","prediction_id":row["prediction_id"],
               "issued_at":row["prediction_ts"],"target_at":row["target_at"],
               "feature_cutoff_at":row.get("decision_evidence",{}).get("feature_cutoff_at",row["prediction_ts"]),
               "symbol":"EURUSD","horizon_seconds":HORIZON*60,"prediction":predicted,"code_commit":code_commit,
