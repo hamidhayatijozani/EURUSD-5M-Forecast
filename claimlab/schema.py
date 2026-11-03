@@ -119,10 +119,13 @@ class Observation:
                 raise ValueError("LIVE_FRESHNESS_STATUS_NOT_FRESH")
             source = _aware_dt(self.source_candle_ts, "LIVE_SOURCE_TIMESTAMP_INVALID")
             observed = _aware_dt(self.observed_at, "LIVE_OBSERVED_TIMESTAMP_INVALID")
+            issued = _aware_dt(self.issued_at, "LIVE_ISSUED_TIMESTAMP_INVALID")
             if source > observed:
                 raise ValueError("source candle is from the future")
             if source > f:
                 raise ValueError("source candle is after feature cutoff")
+            if observed > issued:
+                raise ValueError("LIVE_OBSERVED_AFTER_ISSUED")
             age = float(self.data_age_seconds)
             limit = float(self.freshness_limit_seconds)
             if not math.isfinite(age) or not math.isfinite(limit) or age < 0 or limit <= 0:
