@@ -256,7 +256,7 @@ def test_arena_rejects_live_provenance_observed_after_issuance():
 
 
 def test_arena_uses_conservative_overlap_horizon_for_live_rows(monkeypatch):
-    from claimlab import arena as arena_module
+    import claimlab.arena as arena_module
 
     row = {
         "status": "VALID", "data_mode": "LIVE", "provider": "yahoo",
