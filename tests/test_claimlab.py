@@ -207,6 +207,54 @@ def test_arena_excludes_unverified_legacy_rows():
     assert stats["status"] == "INSUFFICIENT_DATA"
 
 
+def test_live_observation_rejects_evidence_observed_after_issuance():
+    live = prediction() | {
+        "data_mode": "LIVE",
+        "provider": "twelvedata",
+        "source_candle_ts": "2026-10-06T09:59:00Z",
+        "observed_at": "2026-10-06T10:00:01Z",
+        "data_age_seconds": 1.0,
+        "freshness_limit_seconds": 90.0,
+        "freshness_status": "FRESH",
+        "feature_cutoff_at": "2026-10-06T09:59:59Z",
+        "issued_at": "2026-10-06T10:00:00Z",
+    }
+    resolved = resolve(
+        live,
+        actual=0.0015,
+        baseline_prediction=0.0002,
+        resolved_at="2026-10-06T10:05:00Z",
+    )
+    with pytest.raises(ValueError, match="LIVE_OBSERVED_AFTER_ISSUED"):
+        Observation(**resolved)
+
+
+def test_arena_rejects_live_provenance_observed_after_issuance():
+    row = {
+        "status": "VALID",
+        "data_mode": "LIVE",
+        "provider": "twelvedata",
+        "source_candle_ts": "2026-10-06T09:59:00Z",
+        "observed_at": "2026-10-06T10:00:01Z",
+        "data_age_seconds": 1.0,
+        "freshness_limit_seconds": 90.0,
+        "freshness_status": "FRESH",
+        "feature_cutoff_at": "2026-10-06T09:59:59Z",
+        "issued_at": "2026-10-06T10:00:00Z",
+        "target_at": "2026-10-06T10:05:00Z",
+        "resolved_at": "2026-10-06T10:05:00Z",
+        "actual": 1.0,
+        "prediction": 1.0,
+        "baseline_prediction": 0.0,
+        "friction_adjusted_return": 0.9,
+        "direction_hit": True,
+    }
+    stats = score([row])
+    assert stats["n"] == 0
+    assert stats["provenance_rejected"] == 1
+    assert stats["status"] == "INSUFFICIENT_DATA"
+
+
 def test_arena_rejects_rows_missing_temporal_evidence():
     row = {
         "status": "VALID", "data_mode": "HISTORICAL",
