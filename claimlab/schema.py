@@ -64,12 +64,28 @@ class Observation:
                 self.freshness_limit_seconds,
                 self.freshness_status,
             )
-            mode = (
-                "LIVE"
-                if all(value is not None and value != "" for value in live_fields)
-                and self.freshness_status == "FRESH"
-                else "UNVERIFIED"
-            )
+            legacy_live_valid = False
+            if all(value is not None and value != "" for value in live_fields) and self.freshness_status == "FRESH":
+                try:
+                    source = _aware_dt(self.source_candle_ts, "LIVE_SOURCE_TIMESTAMP_INVALID")
+                    cutoff = _aware_dt(self.feature_cutoff_at, "LIVE_FEATURE_CUTOFF_INVALID")
+                    observed = _aware_dt(self.observed_at, "LIVE_OBSERVED_TIMESTAMP_INVALID")
+                    issued = _aware_dt(self.issued_at, "LIVE_ISSUED_TIMESTAMP_INVALID")
+                    age = float(self.data_age_seconds)
+                    limit = float(self.freshness_limit_seconds)
+                    expected_age = (issued - cutoff).total_seconds()
+                    legacy_live_valid = (
+                        source <= cutoff
+                        and observed <= issued
+                        and math.isfinite(age)
+                        and math.isfinite(limit)
+                        and 0 <= age <= limit
+                        and limit > 0
+                        and abs(age - expected_age) <= 1.0
+                    )
+                except (TypeError, ValueError):
+                    legacy_live_valid = False
+            mode = "LIVE" if legacy_live_valid else "UNVERIFIED"
             object.__setattr__(self, "data_mode", mode)
 
         if mode not in {"LIVE", "HISTORICAL", "UNVERIFIED"}:
@@ -118,11 +134,12 @@ class Observation:
             if self.freshness_status != "FRESH":
                 raise ValueError("LIVE_FRESHNESS_STATUS_NOT_FRESH")
             source = _aware_dt(self.source_candle_ts, "LIVE_SOURCE_TIMESTAMP_INVALID")
+            cutoff = _aware_dt(self.feature_cutoff_at, "LIVE_FEATURE_CUTOFF_INVALID")
             observed = _aware_dt(self.observed_at, "LIVE_OBSERVED_TIMESTAMP_INVALID")
             issued = _aware_dt(self.issued_at, "LIVE_ISSUED_TIMESTAMP_INVALID")
             if source > observed:
                 raise ValueError("source candle is from the future")
-            if source > f:
+            if source > cutoff:
                 raise ValueError("source candle is after feature cutoff")
             if observed > issued:
                 raise ValueError("LIVE_OBSERVED_AFTER_ISSUED")
@@ -132,6 +149,9 @@ class Observation:
                 raise ValueError("invalid freshness values")
             if age > limit:
                 raise ValueError("freshness limit exceeded")
+            expected_age = (issued - cutoff).total_seconds()
+            if expected_age < 0 or abs(age - expected_age) > 1.0:
+                raise ValueError("LIVE_FRESHNESS_AGE_MISMATCH")
 
         elif mode == "HISTORICAL":
             if not isinstance(self.provider, str) or not self.provider.strip():
