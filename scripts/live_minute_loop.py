@@ -31,7 +31,7 @@ CROSS_ASSET_CANDIDATES=("LIVE1M_NO_TRADE","LIVE1M_DOLLAR_CONSENSUS_3M","LIVE1M_D
 FRICTION=0.00002
 HORIZON=5
 SLEEP_SECONDS=35
-LIVE_DATA_CONTRACT_VERSION="freshness-90s-v2"
+LIVE_DATA_CONTRACT_VERSION="freshness-90s-v3"
 
 def iso(dt): return dt.astimezone(timezone.utc).isoformat()
 def load_state():
@@ -301,11 +301,16 @@ def _freshness_age_seconds(source_candle_open, observed_at):
     return max(0.0, (observed_at - source_candle_close).total_seconds())
 
 
-def _prediction_times(latest_bar_open):
-    """Translate 1m candle-open labels to exact close/issue/target event times."""
-    issued_at=latest_bar_open+timedelta(minutes=1)
-    target_bar_open=latest_bar_open+timedelta(minutes=HORIZON)
-    target_at=target_bar_open+timedelta(minutes=1)
+def _prediction_times(latest_bar_open, issued_at):
+    """Issue after data receipt; target the first 1m close at least five minutes later."""
+    feature_cutoff_at=latest_bar_open+timedelta(minutes=1)
+    if issued_at <= feature_cutoff_at:
+        issued_at=feature_cutoff_at+timedelta(seconds=1)
+    minimum_target_at=issued_at+timedelta(minutes=HORIZON)
+    target_at=minimum_target_at.replace(second=0,microsecond=0)
+    if target_at < minimum_target_at:
+        target_at+=timedelta(minutes=1)
+    target_bar_open=target_at-timedelta(minutes=1)
     return issued_at,target_bar_open,target_at
 
 
@@ -351,12 +356,17 @@ def settle(rows,times,prices,state,code_commit):
         if row.get("target_at") != resolved_at:
             raise RuntimeError("LIVE_TARGET_CLOSE_TIMESTAMP_MISMATCH")
         provenance=require_freshness_provenance(row)
+        issued_dt=datetime.fromisoformat(row["prediction_ts"].replace("Z","+00:00"))
+        target_at_dt=datetime.fromisoformat(row["target_at"].replace("Z","+00:00"))
+        horizon_seconds=int((target_at_dt-issued_dt).total_seconds())
+        if horizon_seconds < HORIZON*60 or horizon_seconds >= (HORIZON+1)*60:
+            raise RuntimeError("LIVE_HORIZON_OUT_OF_CONTRACT")
         try:
             obs=resolve({
-              "schema_version":"claimlab.observation.v1","prediction_id":row["prediction_id"],
+              "schema_version":"claimlab.observation.v2","data_mode":"LIVE","prediction_id":row["prediction_id"],
               "issued_at":row["prediction_ts"],"target_at":row["target_at"],
-              "feature_cutoff_at":row.get("decision_evidence",{}).get("feature_cutoff_at",row["prediction_ts"]),
-              "symbol":"EURUSD","horizon_seconds":HORIZON*60,"prediction":predicted,"code_commit":code_commit,
+              "feature_cutoff_at":row["feature_cutoff_at"],
+              "symbol":"EURUSD","horizon_seconds":horizon_seconds,"prediction":predicted,"code_commit":code_commit,
               "config_hash": row["config_hash"],
               "claim_registry_hash": registry_hash(),
               **provenance},
@@ -919,16 +929,31 @@ def cycle():
                 "cross_asset_enabled":cross_asset_enabled,
                 "cross_asset_contract":CROSS_ASSET_CONTRACT_VERSION,
                 "cross_asset_contract_v2":CROSS_ASSET_CONTRACT_VERSION_V2,
-                "horizon_seconds":300,"friction":FRICTION}
+                "minimum_horizon_seconds":HORIZON*60,
+                "target_resolution_seconds":60,
+                "target_rule":"first_closed_1m_candle_at_or_after_issue_plus_minimum_horizon",
+                "friction":FRICTION}
         import hashlib
         config_hash=hashlib.sha256(json.dumps(config,sort_keys=True,separators=(",",":")).encode()).hexdigest()
-        issued_at,target_bar_open,target_at=_prediction_times(latest_ts)
+        feature_cutoff_at=source_candle_ts+timedelta(minutes=1)
+        issued_candidate=max(datetime.now(timezone.utc),observed_at)
+        issued_at,target_bar_open,target_at=_prediction_times(latest_ts,issued_candidate)
+        data_age_seconds=(issued_at-feature_cutoff_at).total_seconds()
+        if data_age_seconds>90:
+            print(f"LIVE_CYCLE_HOLD: STALE_EURUSD_ISSUE_FRESHNESS:{data_age_seconds:.1f}s; new_forecast_emitted=false")
+            state["last_cycle_at"]=iso(datetime.now(timezone.utc))
+            state["accuracy"]=state["correct"]/state["resolved"] if state["resolved"] else None
+            save_predictions(predictions); save_state(state)
+            print("LIVE_EVIDENCE_AUDIT:"+json.dumps(audit_stores(evidence_dir=PRED_PATH.parent),sort_keys=True))
+            if changed: git_commit()
+            return "HOLD"
+        horizon_seconds=int((target_at-issued_at).total_seconds())
         decision_evidence=build_decision_evidence(
             candle_times=times[-60:],
             series=series,
             ohlc={key: values[-60:] for key, values in ohlc_map.items()},
             source_candle_ts=source_candle_ts,
-            feature_cutoff_at=source_candle_ts,
+            feature_cutoff_at=feature_cutoff_at,
             issued_at=issued_at,
             target_ts=target_at,
             config_hash=config_hash,
@@ -948,7 +973,8 @@ def cycle():
         )
         row={"prediction_id":f"live-eurusd-1m-{latest_ts.strftime('%Y%m%dT%H%M%SZ')}","prediction_ts":iso(issued_at),
           "target_ts":iso(target_bar_open),"target_at":iso(target_at),
-          "feature_cutoff_at":iso(source_candle_ts),
+          "horizon_seconds":horizon_seconds,
+          "feature_cutoff_at":iso(feature_cutoff_at),
           "decision_evidence":decision_evidence,"decision_evidence_sha256":decision_evidence["snapshot_sha256"],
           "data_contract_version":LIVE_DATA_CONTRACT_VERSION,
           "entry_price":latest_price,"direction":direction,"score":score,"confidence":signal.confidence,"regime":signal.regime,"contradiction":signal.contradiction,

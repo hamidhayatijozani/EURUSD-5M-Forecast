@@ -3,17 +3,48 @@ from datetime import datetime, timedelta, timezone
 from scripts.live_minute_loop import LIVE_DATA_CONTRACT_VERSION, _prediction_times, _quarantine_legacy_predictions
 
 
-def test_live_prediction_times_match_exact_five_minute_close_horizon():
+def test_live_prediction_times_start_after_observation_and_keep_minimum_horizon():
     bar_open = datetime(2026, 10, 7, 0, 23, tzinfo=timezone.utc)
-    issued, target_bar_open, target_at = _prediction_times(bar_open)
-    assert issued == bar_open + timedelta(minutes=1)
-    assert target_bar_open == bar_open + timedelta(minutes=5)
-    assert target_at == bar_open + timedelta(minutes=6)
-    assert (target_at - issued).total_seconds() == 300
+    feature_close = bar_open + timedelta(minutes=1)
+    observed = feature_close + timedelta(seconds=15)
+    issued, target_bar_open, target_at = _prediction_times(bar_open, observed)
+    assert issued == observed
+    assert target_at == target_bar_open + timedelta(minutes=1)
+    assert 300 <= (target_at - issued).total_seconds() < 360
+
+def test_live_prediction_time_is_strictly_after_feature_close():
+    bar_open = datetime(2026, 10, 7, 0, 23, tzinfo=timezone.utc)
+    feature_close = bar_open + timedelta(minutes=1)
+    issued, _, target_at = _prediction_times(bar_open, feature_close)
+    assert issued == feature_close + timedelta(seconds=1)
+    assert target_at > issued
+
+
+def test_decision_evidence_cutoff_is_the_source_candle_close():
+    from engine.forecast_evidence import build_decision_evidence
+
+    source_open = datetime(2026, 10, 7, 0, 23, tzinfo=timezone.utc)
+    cutoff = source_open + timedelta(minutes=1)
+    issued = cutoff + timedelta(seconds=1)
+    target = issued + timedelta(minutes=5)
+    evidence = build_decision_evidence(
+        candle_times=[source_open],
+        series={"EURUSD": [1.1]},
+        ohlc={"EURUSD": [(1.1, 1.2, 1.0, 1.1)]},
+        source_candle_ts=source_open,
+        feature_cutoff_at=cutoff,
+        issued_at=issued,
+        target_ts=target,
+        config_hash="cfg",
+        model_components={},
+        external_context={},
+    )
+    assert evidence["feature_cutoff_at"] == cutoff.isoformat()
+    assert evidence["issued_at"] == issued.isoformat()
 
 
 def test_contract_version_is_explicit_for_clean_live_evidence():
-    assert LIVE_DATA_CONTRACT_VERSION == "freshness-90s-v2"
+    assert LIVE_DATA_CONTRACT_VERSION == "freshness-90s-v3"
 
 
 def test_freshness_age_is_measured_from_candle_close_not_open():
@@ -50,18 +81,21 @@ def test_claimlab_observation_requires_fresh_evidence():
     import pytest
     from claimlab.schema import Observation
     base = dict(
-        schema_version="claimlab.observation.v1", prediction_id="fresh-1",
-        issued_at="2026-10-07T00:37:01+00:00", target_at="2026-10-07T00:42:01+00:00",
-        resolved_at="2026-10-07T00:42:01+00:00", symbol="EURUSD", horizon_seconds=300,
+        schema_version="claimlab.observation.v2", prediction_id="fresh-1",
+        issued_at="2026-10-07T00:37:21+00:00", target_at="2026-10-07T00:42:21+00:00",
+        resolved_at="2026-10-07T00:42:21+00:00", symbol="EURUSD", horizon_seconds=300,
         prediction=0.0001, actual=0.0, baseline_prediction=0.0,
         error_absolute=0.0, baseline_error_absolute=0.0, direction_hit=False,
         gross_return=0.0, spread_cost=0.00002, slippage_cost=0.0, commission_cost=0.0,
         friction_adjusted_return=-0.00002, feature_cutoff_at="2026-10-07T00:37:00+00:00",
         code_commit="test", config_hash="cfg", claim_registry_hash="reg",
-        provider="Yahoo", source_candle_ts="2026-10-07T00:36:40+00:00",
-        observed_at="2026-10-07T00:37:00+00:00", data_age_seconds=20.0,
-        freshness_limit_seconds=90.0, freshness_status="FRESH",
+        provider="Yahoo", source_candle_ts="2026-10-07T00:36:00+00:00",
+        observed_at="2026-10-07T00:37:20+00:00", data_age_seconds=21.0,
+        freshness_limit_seconds=90.0, freshness_status="FRESH", data_mode="LIVE",
     )
     Observation(**base)
+    legacy_complete = Observation(**{key: value for key, value in base.items() if key != "data_mode"})
+    assert legacy_complete.data_mode == "LIVE"
+    assert legacy_complete.status == "VALID"
     with pytest.raises(ValueError, match="freshness limit"):
         Observation(**{**base, "data_age_seconds": 91.0})

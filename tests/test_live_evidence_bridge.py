@@ -7,15 +7,16 @@ from engine.forecast_evidence import build_decision_evidence
 def _row():
     base = datetime(2026, 10, 12, 10, 0, tzinfo=timezone.utc)
     times = [base + timedelta(minutes=i) for i in range(30)]
-    issue = times[-1] + timedelta(minutes=1)
-    target = issue + timedelta(minutes=5)
+    cutoff = times[-1] + timedelta(minutes=1)
+    issue = cutoff + timedelta(seconds=1)
+    target = cutoff + timedelta(minutes=6)
     closes = [1.10 + i * 0.00001 for i in range(len(times))]
     snapshot = build_decision_evidence(
         candle_times=times,
         series={"EURUSD": closes},
         ohlc={"EURUSD": [(p, p + 0.0001, p - 0.0001, p) for p in closes]},
         source_candle_ts=times[-1],
-        feature_cutoff_at=times[-1],
+        feature_cutoff_at=cutoff,
         issued_at=issue,
         target_ts=target,
         config_hash="test-config-hash",
@@ -26,6 +27,8 @@ def _row():
         "prediction_id": "live-test-001",
         "prediction_ts": issue.isoformat(),
         "target_at": target.isoformat(),
+        "feature_cutoff_at": cutoff.isoformat(),
+        "horizon_seconds": int((target - issue).total_seconds()),
         "decision_evidence": snapshot,
         "decision_evidence_sha256": snapshot["snapshot_sha256"],
         "predicted_return": 0.0001,
@@ -33,8 +36,8 @@ def _row():
         "config_hash": "test-config-hash",
         "provider": "test-fixture",
         "source_candle_ts": times[-1].isoformat(),
-        "observed_at": (issue + timedelta(seconds=10)).isoformat(),
-        "data_age_seconds": 10.0,
+        "observed_at": cutoff.isoformat(),
+        "data_age_seconds": 1.0,
         "freshness_limit_seconds": 90.0,
         "freshness_status": "FRESH",
         "entry_price": closes[-1],

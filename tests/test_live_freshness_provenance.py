@@ -7,9 +7,11 @@ class LiveFreshnessProvenanceTests(unittest.TestCase):
     def setUp(self):
         self.row = {
             "provider": "yahoo",
-            "source_candle_ts": "2026-10-27T13:12:00+00:00",
+            "source_candle_ts": "2026-10-27T13:11:00+00:00",
+            "feature_cutoff_at": "2026-10-27T13:12:00+00:00",
             "observed_at": "2026-10-27T13:12:47+00:00",
-            "data_age_seconds": 47.0,
+            "prediction_ts": "2026-10-27T13:12:48+00:00",
+            "data_age_seconds": 48.0,
             "freshness_limit_seconds": 90.0,
             "freshness_status": "FRESH",
         }
@@ -17,7 +19,7 @@ class LiveFreshnessProvenanceTests(unittest.TestCase):
     def test_accepts_complete_fresh_provenance(self):
         result = require_freshness_provenance(self.row)
         self.assertEqual(result["provider"], "yahoo")
-        self.assertEqual(result["data_age_seconds"], 47.0)
+        self.assertEqual(result["data_age_seconds"], 48.0)
 
     def test_missing_age_is_rejected_instead_of_defaulted(self):
         row = dict(self.row)
@@ -30,6 +32,11 @@ class LiveFreshnessProvenanceTests(unittest.TestCase):
             row = dict(self.row, data_age_seconds=age)
             with self.subTest(age=age), self.assertRaises(ValueError):
                 require_freshness_provenance(row)
+
+    def test_observation_after_issue_is_rejected(self):
+        row = dict(self.row, observed_at="2026-10-27T13:12:49+00:00")
+        with self.assertRaisesRegex(ValueError, "LIVE_FRESHNESS_OBSERVED_AFTER_ISSUED"):
+            require_freshness_provenance(row)
 
     def test_naive_or_future_source_timestamp_is_rejected(self):
         row = dict(self.row, source_candle_ts="2026-10-27T13:13:00+00:00")

@@ -156,9 +156,12 @@ class FreshnessGateTests(unittest.TestCase):
         row = self.assert_accepted(60.0, per_fetch_latency=1.5)
         opened = datetime.fromisoformat(row["source_candle_ts"])
         observed = datetime.fromisoformat(row["observed_at"])
-        # Independent oracle: age = observed_at - (candle open + 1 minute).
-        expected = (observed - (opened + timedelta(minutes=1))).total_seconds()
+        issued = datetime.fromisoformat(row["prediction_ts"])
+        # Age is frozen at forecast issuance, not at the earlier data receipt.
+        expected = (issued - (opened + timedelta(minutes=1))).total_seconds()
         self.assertAlmostEqual(row["data_age_seconds"], expected, places=6)
+        self.assertLessEqual(observed, issued)
+        self.assertEqual(row["feature_cutoff_at"], (opened + timedelta(minutes=1)).isoformat())
         self.assertEqual(row["provider"], "unknown")
         self.assertEqual(row["freshness_limit_seconds"], LIMIT_SECONDS)
         self.assertEqual(row["freshness_status"], "FRESH")
@@ -187,6 +190,7 @@ class FreshnessGateTests(unittest.TestCase):
             "data_contract_version": loop.LIVE_DATA_CONTRACT_VERSION,
             "provider": "yahoo",
             "source_candle_ts": "2026-10-07T00:37:00+00:00",
+            "feature_cutoff_at": "2026-10-07T00:38:00+00:00",
             "observed_at": "2026-10-07T00:38:00+00:00",
             "data_age_seconds": 0.0,
             "freshness_limit_seconds": LIMIT_SECONDS,
@@ -204,7 +208,7 @@ class FreshnessGateTests(unittest.TestCase):
                 self.assertFalse((Path(tmp) / "ledger.jsonl").exists())
 
     def test_contract_label_was_bumped_when_age_semantics_changed(self):
-        self.assertNotEqual(loop.LIVE_DATA_CONTRACT_VERSION, "freshness-90s-v1")
+        self.assertEqual(loop.LIVE_DATA_CONTRACT_VERSION, "freshness-90s-v3")
 
     def test_pending_rows_from_the_v1_contract_are_quarantined(self):
         rows = [

@@ -149,7 +149,11 @@ def walk_forward(
         baseline = 0.0
         actual = returns[i]
         pred = {
-            "schema_version": "claimlab.observation.v1",
+            "schema_version": "claimlab.observation.v2",
+            "data_mode": "HISTORICAL",
+            "provider": "getdata-finance-historical-csv",
+            "source_candle_ts": _iso(rows[i]["timestamp"]),
+            "freshness_status": "NOT_APPLICABLE",
             "prediction_id": f"eurusd-m5-{i:08d}",
             "issued_at": _iso(issued),
             "target_at": _iso(target),

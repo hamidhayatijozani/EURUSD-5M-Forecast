@@ -56,9 +56,10 @@ def build_decision_evidence(
         raise ValueError("EVIDENCE_SOURCE_CANDLE_MUST_MATCH_LAST_CANDLE")
     if any(value > source_open for value in times):
         raise ValueError("EVIDENCE_FUTURE_CANDLE_DETECTED")
-    if cutoff_time < times[-1] or cutoff_time != source_open:
-        raise ValueError("EVIDENCE_FEATURE_CUTOFF_MUST_MATCH_LATEST_INPUT_CANDLE")
-    if issue_time < source_open + timedelta(minutes=1):
+    source_close = source_open + timedelta(minutes=1)
+    if cutoff_time != source_close:
+        raise ValueError("EVIDENCE_FEATURE_CUTOFF_MUST_MATCH_SOURCE_CANDLE_CLOSE")
+    if issue_time <= source_close:
         raise ValueError("EVIDENCE_ISSUED_BEFORE_SOURCE_CANDLE_CLOSE")
     if not config_hash:
         raise ValueError("EVIDENCE_CONFIG_HASH_REQUIRED")

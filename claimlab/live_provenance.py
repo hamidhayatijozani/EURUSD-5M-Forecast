@@ -10,6 +10,8 @@ _REQUIRED = (
     "data_age_seconds",
     "freshness_limit_seconds",
     "freshness_status",
+    "prediction_ts",
+    "feature_cutoff_at",
 )
 
 
@@ -39,13 +41,20 @@ def require_freshness_provenance(row):
 
     try:
         source = datetime.fromisoformat(str(row["source_candle_ts"]).replace("Z", "+00:00"))
+        cutoff = datetime.fromisoformat(str(row["feature_cutoff_at"]).replace("Z", "+00:00"))
         observed = datetime.fromisoformat(str(row["observed_at"]).replace("Z", "+00:00"))
+        issued = datetime.fromisoformat(str(row["prediction_ts"]).replace("Z", "+00:00"))
     except ValueError as exc:
         raise ValueError("LIVE_FRESHNESS_TIMESTAMP_INVALID") from exc
-    if source.tzinfo is None or observed.tzinfo is None:
+    if any(value.tzinfo is None for value in (source, cutoff, observed, issued)):
         raise ValueError("LIVE_FRESHNESS_TIMESTAMP_MUST_BE_TIMEZONE_AWARE")
-    if source > observed:
+    if source > observed or source > cutoff:
         raise ValueError("LIVE_FRESHNESS_SOURCE_FROM_FUTURE")
+    if observed > issued:
+        raise ValueError("LIVE_FRESHNESS_OBSERVED_AFTER_ISSUED")
+    expected_age = (issued - cutoff).total_seconds()
+    if expected_age < 0 or abs(age - expected_age) > 1.0:
+        raise ValueError("LIVE_FRESHNESS_AGE_MISMATCH")
 
     return {
         "provider": row["provider"].strip(),
