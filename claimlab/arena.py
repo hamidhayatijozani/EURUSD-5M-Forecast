@@ -58,12 +58,13 @@ def _provenance_eligible(row):
             return False
         try:
             observed = _parse_aware_timestamp(row["observed_at"])
+            issued = _parse_aware_timestamp(row["issued_at"])
             age = float(row["data_age_seconds"])
             limit = float(row["freshness_limit_seconds"])
         except (KeyError, TypeError, ValueError):
             return False
         return (
-            source <= observed
+            source <= observed <= issued
             and math.isfinite(age)
             and math.isfinite(limit)
             and 0 <= age <= limit
