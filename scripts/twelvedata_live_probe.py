@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -16,6 +17,8 @@ def main() -> int:
         record = {
             "schema_version": 1,
             "probe": "twelvedata_eurusd_5min_ingestion",
+            "code_commit": os.getenv("GITHUB_SHA"),
+            "timestamp_semantics": "candle_open_utc",
             "status": "PASS" if candle["freshness_status"] == "FRESH" else "FAIL",
             "live_feed_claim": "VERIFIED_FOR_THIS_OBSERVATION" if candle["freshness_status"] == "FRESH" else "STALE",
             "forecast_or_prediction_created": False,
@@ -38,6 +41,7 @@ def main() -> int:
             "data_age_seconds": candle["data_age_seconds"],
             "freshness_status": candle["freshness_status"],
             "raw_payload_hash": candle["raw_payload_hash"],
+            "raw_payload_hash_scope": candle["raw_payload_hash_scope"],
             "evidence_file": str(out),
             "forecast_or_prediction_created": False,
         }, sort_keys=True))
@@ -47,6 +51,8 @@ def main() -> int:
         record = {
             "schema_version": 1,
             "probe": "twelvedata_eurusd_5min_ingestion",
+            "code_commit": os.getenv("GITHUB_SHA"),
+            "timestamp_semantics": "candle_open_utc",
             "status": "FAIL",
             "live_feed_claim": "UNVERIFIED",
             "forecast_or_prediction_created": False,
