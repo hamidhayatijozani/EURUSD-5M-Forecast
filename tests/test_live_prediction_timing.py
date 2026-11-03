@@ -44,7 +44,7 @@ def test_decision_evidence_cutoff_is_the_source_candle_close():
 
 
 def test_contract_version_is_explicit_for_clean_live_evidence():
-    assert LIVE_DATA_CONTRACT_VERSION == "freshness-90s-v2"
+    assert LIVE_DATA_CONTRACT_VERSION == "freshness-90s-v3"
 
 
 def test_freshness_age_is_measured_from_candle_close_not_open():
