@@ -14,10 +14,11 @@ Last update: **2026-11-03** (UTC)
 - Cross-asset v2 reported `READY`, but `cross_asset_enabled=false`; the forecast did not use that candidate family. External-context coverage was 0: news was unavailable, the electricity provider had no API key, and no trader signal file was present.
 - Forward paper account from the same run: 423 input rows; 282 eligible resolved predictions; 34 missing/invalid-evidence rows; 63 unresolved; 44 wrong/missing-contract rows. The ledger produced 208 paper trades, 69 wins and 139 losses (33.17% win rate). Net PnL was -8.34 at the assumed 0.2-pip cost, -20.80 at 0.5 pip and -41.54 at 1.0 pip. `profitability_claim_allowed=false`; mode was `PAPER_ONLY_NO_BROKER`.
 - Live broker execution and real-money orders: **NOT_RUN**. No broker order was placed by these workflows.
+- Current customer-facing evidence brief: [CLAIMLAB_CUSTOMER_EVALUATION_BRIEF_2026-11-03.md](../research/results/CLAIMLAB_CUSTOMER_EVALUATION_BRIEF_2026-11-03.md).
 
 ## 2026-11-03 data-pipeline decision
 
-The 1-minute Twelve Data feed now has one evidenced fresh run, but that does not replace a live 5-minute EUR/USD candle check. The separate 5-minute historical probe remains stale. The repository already contains a read-only `TwelveDataEURUSD5mClient` and a probe script; a manual-only workflow is being added to run that probe without increasing scheduled API usage. The 5-minute probe will be considered verified only after its own artifact records a completed candle, UTC candle-open and close timestamps, observation time, bounded freshness, code commit and selected-candle-row hash.
+The 1-minute Twelve Data feed now has one evidenced fresh run, but that does not replace a live 5-minute EUR/USD candle check. The separate 5-minute historical probe remains stale. The repository already contains a read-only `TwelveDataEURUSD5mClient` and a probe script. This candidate adds a manual-only workflow to run that probe without increasing scheduled API usage; the workflow has not yet been executed. It will consume one provider request per manual dispatch. The 5-minute probe will be considered verified only after its own artifact records a completed candle, UTC candle-open and close timestamps, observation time, bounded freshness, code commit and selected-candle-row hash.
 
 The 5-minute adapter's default freshness bound is being tightened to 360 seconds (one 5-minute bar plus a 60-second allowance). This is a rejection threshold, not a claim that a stale candle is usable.
 
