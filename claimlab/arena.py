@@ -63,12 +63,15 @@ def _provenance_eligible(row):
             limit = float(row["freshness_limit_seconds"])
         except (KeyError, TypeError, ValueError):
             return False
+        expected_age = (issued - _parse_aware_timestamp(row["feature_cutoff_at"])).total_seconds()
         return (
             source <= observed <= issued
             and math.isfinite(age)
             and math.isfinite(limit)
             and 0 <= age <= limit
             and limit > 0
+            and expected_age >= 0
+            and abs(age - expected_age) <= 1.0
         )
 
     return False
