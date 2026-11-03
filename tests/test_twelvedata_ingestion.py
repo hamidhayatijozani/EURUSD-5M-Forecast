@@ -49,6 +49,7 @@ def test_requests_eurusd_five_minute_data_and_returns_completed_candle():
     assert result["freshness_status"] == "FRESH"
     assert result["close"] == 1.1004
     assert len(result["raw_payload_hash"]) == 64
+    assert result["raw_payload_hash_scope"] == "selected_candle_row_json"
     args, kwargs = session.calls[0]
     assert args[0] == TwelveDataEURUSD5mClient.ENDPOINT
     assert kwargs["params"]["symbol"] == "EUR/USD"
@@ -118,3 +119,19 @@ def test_legacy_api_key_environment_alias_remains_supported(monkeypatch):
     _, kwargs = client.session.calls[0]
     assert kwargs["params"]["apikey"] == "legacy-test-key"
 
+def test_default_freshness_window_rejects_a_candle_older_than_360_seconds():
+    session = FakeSession({"values": [row("2026-10-13 06:10:00")]})
+    client = TwelveDataEURUSD5mClient("not-a-real-key", session=session)
+
+    at_boundary = client.fetch_latest_eurusd_candle(
+        now=datetime(2026, 10, 13, 6, 21, 0, tzinfo=timezone.utc)
+    )
+    assert at_boundary["freshness_limit_seconds"] == 360
+    assert at_boundary["data_age_seconds"] == 360
+    assert at_boundary["freshness_status"] == "FRESH"
+
+    one_second_late = client.fetch_latest_eurusd_candle(
+        now=datetime(2026, 10, 13, 6, 21, 1, tzinfo=timezone.utc)
+    )
+    assert one_second_late["data_age_seconds"] == 361
+    assert one_second_late["freshness_status"] == "STALE"
