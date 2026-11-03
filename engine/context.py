@@ -6,6 +6,8 @@ from pathlib import Path
 from statistics import median
 from urllib.request import Request, urlopen
 
+from engine.coinversa_context import fetch_coinversa_context
+
 NEWS_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 POWER_HISTORY_URL = "https://api.electricitymaps.com/v4/total-load/history"
 
@@ -24,6 +26,7 @@ class ExternalContext:
     context_degraded: bool
     context_score: float
     sources: tuple
+    coinversa_context: dict
 
 def _clip(x, lo=-1.0, hi=1.0):
     return max(lo, min(hi, float(x)))
@@ -159,7 +162,7 @@ def fetch_power_proxy(token=None, now=None):
         return {"score":0.0,"status":"UNAVAILABLE:PROVIDER","targets":[]}
     return {"score":sum(scores)/len(scores),"status":"OK","targets":targets}
 
-def fuse_context(news,traders,power):
+def fuse_context(news,traders,power,coinversa=None):
     # News and observed trader error are directional. Data-center load is a
     # stress/regime feature and is intentionally not treated as direction.
     directional=_clip(0.55*news["score"]+0.45*traders["score"])
@@ -173,9 +176,11 @@ def fuse_context(news,traders,power):
         power_score=power["score"],power_status=power_status,
         directional_sources_available=available,context_coverage=available/2.0,
         context_degraded=available<2,context_score=directional,
-        sources=("GDELT","TRADER_LEADERBOARD_24H","ELECTRICITY_MAPS_DATACENTER_LOAD"))
+        sources=("GDELT","TRADER_LEADERBOARD_24H","ELECTRICITY_MAPS_DATACENTER_LOAD"),
+        coinversa_context=coinversa or {"status":"UNAVAILABLE:NOT_REQUESTED","directional_signal":False,"eurusd_ohlc":False})
 
 def collect_external_context(eurusd_rows,now=None):
     now=now or datetime.now(timezone.utc)
     return asdict(fuse_context(fetch_news_context(now),
-        trader_leaderboard(eurusd_rows,now=now),fetch_power_proxy(now=now)))
+        trader_leaderboard(eurusd_rows,now=now),fetch_power_proxy(now=now),
+        coinversa=fetch_coinversa_context(now=now)))
