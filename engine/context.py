@@ -1,5 +1,6 @@
 """External context fusion for the live EUR/USD minute engine."""
 import json, os, re, urllib.parse
+from engine.coinversa_context import fetch_coinversa_context
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -177,5 +178,9 @@ def fuse_context(news,traders,power):
 
 def collect_external_context(eurusd_rows,now=None):
     now=now or datetime.now(timezone.utc)
-    return asdict(fuse_context(fetch_news_context(now),
+    context=asdict(fuse_context(fetch_news_context(now),
         trader_leaderboard(eurusd_rows,now=now),fetch_power_proxy(now=now)))
+    # Coinversa is an independent, optional crypto-risk sidecar. Its failure
+    # never changes the EUR/USD directional score or market-data failover.
+    context["coinversa_context"]=fetch_coinversa_context()
+    return context
