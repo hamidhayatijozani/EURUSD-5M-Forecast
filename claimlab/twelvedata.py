@@ -29,7 +29,7 @@ class TwelveDataEURUSD5mClient:
         api_key: str | None = None,
         timeout: float = 12.0,
         session: Any = None,
-        max_age_seconds: int = 900,
+        max_age_seconds: int = 360,
     ) -> None:
         self.api_key = api_key or os.getenv("TWELVEDATA_API_KEY") or os.getenv("TWELVE_DATA_API_KEY")
         if not self.api_key:
@@ -119,4 +119,5 @@ class TwelveDataEURUSD5mClient:
             "freshness_limit_seconds": self.max_age_seconds,
             "freshness_status": "FRESH" if age_seconds <= self.max_age_seconds else "STALE",
             "raw_payload_hash": raw_hash,
+            "raw_payload_hash_scope": "selected_candle_row_json",
         }
