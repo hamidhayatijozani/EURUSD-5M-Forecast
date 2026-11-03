@@ -12,7 +12,11 @@ from claimlab.verdict import verdict
 
 def prediction():
     return {
-        "schema_version": "claimlab.observation.v1",
+        "schema_version": "claimlab.observation.v2",
+        "data_mode": "HISTORICAL",
+        "provider": "test-historical",
+        "source_candle_ts": "2026-10-06T09:55:00Z",
+        "freshness_status": "NOT_APPLICABLE",
         "prediction_id": "p-001",
         "issued_at": "2026-10-06T10:00:00Z",
         "target_at": "2026-10-06T10:05:00Z",
@@ -87,11 +91,55 @@ def test_ledger_is_append_only_and_detects_tampering(tmp_path: Path):
     assert ledger.verify() is False
 
 
+
+@pytest.mark.parametrize(
+    "legacy_fields",
+    [
+        {
+            "provider": "Yahoo",
+            "source_candle_ts": "",
+            "observed_at": "",
+            "data_age_seconds": 0.0,
+            "freshness_limit_seconds": 90.0,
+            "freshness_status": "FRESH",
+        },
+        {
+            "provider": None,
+            "source_candle_ts": None,
+            "observed_at": None,
+            "data_age_seconds": None,
+            "freshness_limit_seconds": None,
+            "freshness_status": None,
+        },
+    ],
+)
+def test_legacy_observation_without_provenance_is_quarantined(legacy_fields):
+    legacy_prediction = prediction()
+    for key in ("data_mode", "provider", "source_candle_ts", "freshness_status"):
+        legacy_prediction.pop(key, None)
+    legacy_prediction.update(legacy_fields)
+    resolved = resolve(
+        legacy_prediction,
+        actual=0.0015,
+        baseline_prediction=0.0002,
+        resolved_at="2026-10-06T10:05:00Z",
+    )
+    observation = Observation(**resolved)
+    assert observation.data_mode == "UNVERIFIED"
+    assert observation.status == "INVALID"
+    assert observation.provider == "UNVERIFIED"
+    assert observation.freshness_status == "UNVERIFIED"
+
+
 def test_arena_and_preregistered_verdict():
     rows = []
     for i in range(100):
         rows.append({
             "status": "VALID",
+            "data_mode": "HISTORICAL",
+            "provider": "test-historical",
+            "source_candle_ts": "2026-10-06T09:55:00Z",
+            "freshness_status": "NOT_APPLICABLE",
             "feature_cutoff_at": "2026-10-06T09:59:59Z",
             "issued_at": "2026-10-06T10:00:00Z",
             "target_at": "2026-10-06T10:05:00Z",
@@ -116,6 +164,10 @@ def test_arena_and_preregistered_verdict():
 def test_arena_rejects_equal_cutoff_and_issue_timestamp():
     row = {
         "status": "VALID",
+        "data_mode": "HISTORICAL",
+        "provider": "test-historical",
+        "source_candle_ts": "2026-10-06T09:55:00Z",
+        "freshness_status": "NOT_APPLICABLE",
         "feature_cutoff_at": "2026-10-06T10:00:00Z",
         "issued_at": "2026-10-06T10:00:00Z",
         "target_at": "2026-10-06T10:05:00Z",
@@ -132,11 +184,109 @@ def test_arena_rejects_equal_cutoff_and_issue_timestamp():
     assert stats["status"] == "INSUFFICIENT_DATA"
 
 
+
+def test_arena_excludes_unverified_legacy_rows():
+    row = {
+        "status": "VALID",
+        "data_mode": "UNVERIFIED",
+        "provider": "UNVERIFIED",
+        "freshness_status": "UNVERIFIED",
+        "actual": 1.0,
+        "prediction": 1.0,
+        "baseline_prediction": 0.0,
+        "friction_adjusted_return": 0.9,
+        "direction_hit": True,
+        "feature_cutoff_at": "2026-10-06T09:59:59Z",
+        "issued_at": "2026-10-06T10:00:00Z",
+        "target_at": "2026-10-06T10:05:00Z",
+        "resolved_at": "2026-10-06T10:05:00Z",
+    }
+    stats = score([row])
+    assert stats["n"] == 0
+    assert stats["provenance_rejected"] == 1
+    assert stats["status"] == "INSUFFICIENT_DATA"
+
+
+def test_live_observation_rejects_evidence_observed_after_issuance():
+    live = prediction() | {
+        "data_mode": "LIVE",
+        "provider": "twelvedata",
+        "source_candle_ts": "2026-10-06T09:59:00Z",
+        "observed_at": "2026-10-06T10:00:01Z",
+        "data_age_seconds": 1.0,
+        "freshness_limit_seconds": 90.0,
+        "freshness_status": "FRESH",
+        "feature_cutoff_at": "2026-10-06T09:59:59Z",
+        "issued_at": "2026-10-06T10:00:00Z",
+    }
+    resolved = resolve(
+        live,
+        actual=0.0015,
+        baseline_prediction=0.0002,
+        resolved_at="2026-10-06T10:05:00Z",
+    )
+    with pytest.raises(ValueError, match="LIVE_OBSERVED_AFTER_ISSUED"):
+        Observation(**resolved)
+
+
+def test_arena_rejects_live_provenance_observed_after_issuance():
+    row = {
+        "status": "VALID",
+        "data_mode": "LIVE",
+        "provider": "twelvedata",
+        "source_candle_ts": "2026-10-06T09:59:00Z",
+        "observed_at": "2026-10-06T10:00:01Z",
+        "data_age_seconds": 1.0,
+        "freshness_limit_seconds": 90.0,
+        "freshness_status": "FRESH",
+        "feature_cutoff_at": "2026-10-06T09:59:59Z",
+        "issued_at": "2026-10-06T10:00:00Z",
+        "target_at": "2026-10-06T10:05:00Z",
+        "resolved_at": "2026-10-06T10:05:00Z",
+        "actual": 1.0,
+        "prediction": 1.0,
+        "baseline_prediction": 0.0,
+        "friction_adjusted_return": 0.9,
+        "direction_hit": True,
+    }
+    stats = score([row])
+    assert stats["n"] == 0
+    assert stats["provenance_rejected"] == 1
+    assert stats["status"] == "INSUFFICIENT_DATA"
+
+
+def test_arena_uses_conservative_overlap_horizon_for_live_rows(monkeypatch):
+    from claimlab import arena as arena_module
+
+    row = {
+        "status": "VALID", "data_mode": "LIVE", "provider": "yahoo",
+        "source_candle_ts": "2026-10-06T09:59:00Z",
+        "feature_cutoff_at": "2026-10-06T10:00:00Z",
+        "observed_at": "2026-10-06T10:00:10Z",
+        "issued_at": "2026-10-06T10:00:20Z",
+        "target_at": "2026-10-06T10:05:59Z",
+        "resolved_at": "2026-10-06T10:05:59Z",
+        "freshness_status": "FRESH", "data_age_seconds": 20.0,
+        "freshness_limit_seconds": 90.0, "horizon_seconds": 339,
+        "actual": 0.001, "prediction": 0.001, "baseline_prediction": 0.0,
+        "friction_adjusted_return": 0.0009, "direction_hit": True,
+    }
+    captured = {}
+    def fake_summarize(rows, **kwargs):
+        captured.update(kwargs)
+        return {"n": len(rows)}
+    monkeypatch.setattr(arena_module.StatisticalEngine, "summarize", fake_summarize)
+    stats = arena_module.score([row], bootstrap_resamples=10)
+    assert stats["overlap_horizon_minutes"] == 6
+    assert captured["horizon"] == 6
+
+
 def test_arena_rejects_rows_missing_temporal_evidence():
     row = {
-        "status": "VALID", "actual": 1.0, "prediction": 1.0,
-        "baseline_prediction": 0.0, "friction_adjusted_return": 0.9,
-        "direction_hit": True,
+        "status": "VALID", "data_mode": "HISTORICAL",
+        "provider": "test-historical", "source_candle_ts": "2026-10-06T09:55:00Z",
+        "freshness_status": "NOT_APPLICABLE",
+        "feature_cutoff_at": "2026-10-06T09:59:59Z",
     }
     stats = score([row])
     assert stats["n"] == 0

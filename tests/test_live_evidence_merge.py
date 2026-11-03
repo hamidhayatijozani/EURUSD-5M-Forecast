@@ -10,11 +10,15 @@ from scripts import live_minute_loop as loop
 
 
 def _observation(prediction_id, issued_minute):
-    issued = f"2026-10-12T12:{issued_minute:02d}:00+00:00"
-    target = f"2026-10-12T{12 + (issued_minute + 5) // 60:02d}:{(issued_minute + 5) % 60:02d}:00+00:00"
+    issued_dt = datetime(2026, 10, 12, 12, issued_minute, 30, tzinfo=timezone.utc)
+    cutoff_dt = issued_dt.replace(second=0, microsecond=0)
+    source_dt = cutoff_dt - timedelta(minutes=1)
+    target_dt = issued_dt + timedelta(minutes=5)
+    issued = issued_dt.isoformat()
+    target = target_dt.isoformat()
     resolved = target
     return Observation(
-        schema_version="claimlab.observation.v1",
+        schema_version="claimlab.observation.v2",
         prediction_id=prediction_id,
         issued_at=issued,
         target_at=target,
@@ -32,16 +36,17 @@ def _observation(prediction_id, issued_minute):
         slippage_cost=0.0,
         commission_cost=0.0,
         friction_adjusted_return=0.00018,
-        feature_cutoff_at=(datetime.fromisoformat(issued) - timedelta(seconds=1)).isoformat(),
+        feature_cutoff_at=cutoff_dt.isoformat(),
         code_commit="abc123",
         config_hash="config",
         claim_registry_hash="registry",
         provider="Yahoo",
-        source_candle_ts="2026-10-12T11:59:00+00:00",
-        observed_at=(datetime.fromisoformat(issued) + timedelta(seconds=30)).isoformat(),
+        source_candle_ts=source_dt.isoformat(),
+        observed_at=cutoff_dt.isoformat(),
         data_age_seconds=30.0,
         freshness_limit_seconds=90.0,
         freshness_status="FRESH",
+        data_mode="LIVE",
     )
 
 
@@ -75,6 +80,30 @@ def test_claim_ledger_merge_rebuilds_hash_chain(tmp_path, monkeypatch):
     ledger = Ledger(merged_path)
     assert ledger.verify()
     assert {row["prediction_id"] for row in ledger._rows()} == {"p1", "p2"}
+
+
+
+def test_claim_ledger_merge_quarantines_legacy_rows_without_provenance(tmp_path, monkeypatch):
+    body = json.loads(_observation("legacy-no-provenance", 0).canonical())
+    body["schema_version"] = "claimlab.observation.v1"
+    body.pop("data_mode", None)
+    for key in (
+        "provider", "source_candle_ts", "observed_at",
+        "data_age_seconds", "freshness_limit_seconds", "freshness_status",
+    ):
+        body[key] = None
+
+    ledger_path = tmp_path / "legacy-ledger.jsonl"
+    monkeypatch.setattr(loop, "CLAIM_LEDGER_PATH", ledger_path)
+    loop._merge_claim_ledger_texts(json.dumps(body) + "\n", "")
+
+    ledger = Ledger(ledger_path)
+    assert ledger.verify()
+    stored = ledger._rows()[0]
+    assert stored["status"] == "INVALID"
+    assert stored["data_mode"] == "UNVERIFIED"
+    assert stored["provider"] == "UNVERIFIED"
+    assert stored["freshness_status"] == "UNVERIFIED"
 
 
 def test_cross_asset_merge_rechains_and_deduplicates(tmp_path, monkeypatch):

@@ -70,6 +70,11 @@ def test_walk_forward_never_uses_target_bar_as_feature():
     assert first["feature_cutoff_at"] < first["issued_at"]
     assert first["issued_at"] < first["target_at"]
     assert first["horizon_seconds"] == 300
+    assert first["data_mode"] == "HISTORICAL"
+    assert first["provider"] == "getdata-finance-historical-csv"
+    assert first["freshness_status"] == "NOT_APPLICABLE"
+    assert first["data_age_seconds"] is None
+    assert first["freshness_limit_seconds"] is None
     # The target return is resolved from the target bar, not the following bar.
     expected = rows[13]["close"] / rows[12]["close"] - 1.0
     assert abs(first["actual"] - expected) < 1e-12
