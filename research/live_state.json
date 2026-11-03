@@ -1,11 +1,62 @@
 {
   "accuracy": null,
-  "algorithms": {},
+  "algorithms": {
+    "BREAKOUT_10": {
+      "bias": 0.0,
+      "mae": 0.0005,
+      "n": 0
+    },
+    "CANDLE_STRUCTURE": {
+      "bias": 0.0,
+      "mae": 0.0005,
+      "n": 0
+    },
+    "MEANREV_10": {
+      "bias": 0.0,
+      "mae": 0.0005,
+      "n": 0
+    },
+    "MEANREV_20": {
+      "bias": 0.0,
+      "mae": 0.0005,
+      "n": 0
+    },
+    "MEANREV_5": {
+      "bias": 0.0,
+      "mae": 0.0005,
+      "n": 0
+    },
+    "MOM_10": {
+      "bias": 0.0,
+      "mae": 0.0005,
+      "n": 0
+    },
+    "MOM_2": {
+      "bias": 0.0,
+      "mae": 0.0005,
+      "n": 0
+    },
+    "MOM_20": {
+      "bias": 0.0,
+      "mae": 0.0005,
+      "n": 0
+    },
+    "MOM_5": {
+      "bias": 0.0,
+      "mae": 0.0005,
+      "n": 0
+    },
+    "VOL_REGIME": {
+      "bias": 0.0,
+      "mae": 0.0005,
+      "n": 0
+    }
+  },
   "bias": 0.0,
-  "context_cycles": 0,
+  "context_cycles": 1,
   "correct": 0,
   "errors": [],
-  "last_cycle_at": "2026-11-03T05:56:52.356270+00:00",
+  "last_cycle_at": "2026-11-03T05:57:01.869457+00:00",
   "last_external_context": {
     "context_coverage": 0.0,
     "context_degraded": true,
@@ -25,7 +76,7 @@
     "trader_score": 0.0,
     "trader_status": "NO_SIGNAL_FILE"
   },
-  "last_prediction": "2026-11-03T02:28:00+00:00",
+  "last_prediction": "2026-11-03T05:55:00+00:00",
   "legacy_pre_contract_metrics": {
     "accuracy": 0.3142857142857143,
     "correct": 11,
