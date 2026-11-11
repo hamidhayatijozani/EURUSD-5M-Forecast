@@ -1,0 +1,67 @@
+name: OANDA Live Data Adapter
+
+on:
+  pull_request:
+    paths:
+      - "claimlab/oanda_live.py"
+      - "tests/test_oanda_live.py"
+      - "scripts/oanda_live_probe.py"
+      - "docs/OANDA_LIVE_MARKET_DATA.md"
+      - ".github/workflows/oanda-live-adapter.yml"
+      - "requirements.txt"
+      - "pyproject.toml"
+  workflow_dispatch:
+    inputs:
+      run_live_probe:
+        description: "Attempt a real OANDA EURUSD quote probe (requires repository secrets)"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-tests:
+    name: Unit tests (synthetic fixtures)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run OANDA adapter tests
+        run: python -m pytest -q tests/test_oanda_live.py
+      - name: Run full test suite
+        run: python -m pytest -q
+
+  live-connectivity-probe:
+    name: Optional real-provider connectivity probe
+    if: github.event_name == 'workflow_dispatch' && inputs.run_live_probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      OANDA_API_TOKEN: ${{ secrets.OANDA_API_TOKEN }}
+      OANDA_ACCOUNT_ID: ${{ secrets.OANDA_ACCOUNT_ID }}
+      OANDA_ENVIRONMENT: practice
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Check required secrets are configured
+        env:
+          TOKEN: ${{ secrets.OANDA_API_TOKEN }}
+          ACCOUNT: ${{ secrets.OANDA_ACCOUNT_ID }}
+        run: |
+          if [ -z "$TOKEN" ] || [ -z "$ACCOUNT" ]; then
+            echo "::error::Configure OANDA_API_TOKEN and OANDA_ACCOUNT_ID in repository Actions secrets."
+            exit 1
+          fi
+      - name: Probe real EURUSD quote
+        run: python scripts/oanda_live_probe.py
